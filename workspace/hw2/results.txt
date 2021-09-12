@@ -1,0 +1,203 @@
+Available models:
+1. Majority Class
+2. Word Length
+3. Word Frequency
+4. Naive Bayes
+5. Logistic Regression
+Enter your classifier selections separated by comma, e.g. 1,2,3: 1,2,3,4,5
+
+================
+Evaluating Model: Majority Class
+1. TRAIN DATA
+Precision: 0.43275
+Recall: 1.0
+F1 Score: 0.604083057058105
+2. DEV DATA
+Precision: 0.418
+Recall: 1.0
+F1 Score: 0.5895627644569816
+
+================
+Evaluating Model: Word Length
+1. TRAIN DATA
+==Testing on training data with length threshold: 4
+Precision: 0.44427244582043346
+Recall: 0.9373979314099075
+F1 Score: 0.6028356380185542
+==Testing on training data with length threshold: 5
+Precision: 0.48284808302104354
+Recall: 0.7790697674418605
+F1 Score: 0.596191493148247
+==Testing on training data with length threshold: 6
+Precision: 0.5379449294828744
+Recall: 0.6420841683366734
+F1 Score: 0.5854193312625617
+==Testing on training data with length threshold: 7
+Precision: 0.6007401315789473
+Recall: 0.5295396882928597
+F1 Score: 0.5628973222885764
+==Testing on training data with length threshold: 8
+Precision: 0.6785119378123264
+Recall: 0.41964285714285715
+F1 Score: 0.5185656694249947
+==Testing on training data with length threshold: 9
+Precision: 0.7456279809220986
+Recall: 0.32490474541046066
+F1 Score: 0.4525934861278649
+==Testing on training data with length threshold: 10
+Precision: 0.7696139476961394
+Recall: 0.22871946706143598
+F1 Score: 0.3526390870185449
+==Testing on training data with length threshold: 11
+Precision: 0.7803347280334728
+Recall: 0.14702404414662987
+F1 Score: 0.2474295190713101
+==Testing on training data with length threshold: 12
+Precision: 0.7948717948717948
+Recall: 0.08930041152263374
+F1 Score: 0.16056233814280427
+==Testing on training data with length threshold: 13
+Precision: 0.7814569536423841
+Recall: 0.05012744265080714
+F1 Score: 0.09421157684630738
+==Testing on training data with length threshold: 14
+Precision: 0.7528089887640449
+Recall: 0.02895419187554019
+F1 Score: 0.055763628797336665
+==Testing on training data with length threshold: 15
+Precision: 0.7450980392156863
+Recall: 0.016564952048823016
+F1 Score: 0.032409381663113
+==Testing on training data with length threshold: 16
+Precision: 0.6875
+Recall: 0.009644892590968873
+F1 Score: 0.019022913964548204
+==Testing on training data with length threshold: 17
+Precision: 0.7647058823529411
+Recall: 0.005706760316066725
+F1 Score: 0.011328976034858386
+==Testing on training data with length threshold: 18
+Precision: 0.7
+Recall: 0.0030796304443466782
+F1 Score: 0.006132282084975909
+==Testing on training data with length threshold: 19
+Precision: 0.5
+Recall: 0.0013221683561040105
+F1 Score: 0.0026373626373626374
+==Testing on training data with length threshold: 20
+Precision: 1.0
+Recall: 0.0008806693086745927
+F1 Score: 0.0017597888253409587
+Best threshold is: 4
+2. DEV DATA
+Precision: 0.4256619144602851
+Recall: 0.9587155963302753
+F1 Score: 0.5895627644569817
+
+================
+Evaluating Model: Word Frequency
+1. TRAIN DATA
+==Testing on training data with frequency threshold: 9039
+Precision: 0.43473684210526314
+Recall: 0.9317540891144952
+F1 Score: 0.5928584245469226
+==Testing on training data with frequency threshold: 262089
+Precision: 0.4172222222222222
+Recall: 0.8977884040645547
+F1 Score: 0.5696946709652949
+==Testing on training data with frequency threshold: 788577
+Precision: 0.3985294117647059
+Recall: 0.8581380620645979
+F1 Score: 0.5442860012050613
+==Testing on training data with frequency threshold: 1345923
+Precision: 0.3778125
+Recall: 0.8130464021519839
+F1 Score: 0.5158950288030724
+==Testing on training data with frequency threshold: 2197823
+Precision: 0.3576666666666667
+Recall: 0.7583038869257951
+F1 Score: 0.48607021517553795
+==Testing on training data with frequency threshold: 3174802
+Precision: 0.3357142857142857
+Recall: 0.6968124536693847
+F1 Score: 0.4531212340322969
+==Testing on training data with frequency threshold: 4368819
+Precision: 0.32346153846153847
+Recall: 0.622501850481125
+F1 Score: 0.4257150088585168
+==Testing on training data with frequency threshold: 5941790
+Precision: 0.3070833333333333
+Recall: 0.5487714072970961
+F1 Score: 0.3938017632914775
+==Testing on training data with frequency threshold: 7721749
+Precision: 0.28454545454545455
+Recall: 0.4738834216502649
+F1 Score: 0.35558080090883276
+==Testing on training data with frequency threshold: 10468232
+Precision: 0.2635
+Recall: 0.3983371126228269
+F1 Score: 0.3171832681312068
+==Testing on training data with frequency threshold: 13838361
+Precision: 0.2461111111111111
+Recall: 0.32693726937269374
+F1 Score: 0.280824088748019
+==Testing on training data with frequency threshold: 17553324
+Precision: 0.224375
+Recall: 0.2588320115356885
+F1 Score: 0.24037495815199195
+==Testing on training data with frequency threshold: 22296462
+Precision: 0.21071428571428572
+Recall: 0.2021932830705963
+F1 Score: 0.20636586218957678
+==Testing on training data with frequency threshold: 28616903
+Precision: 0.1925
+Recall: 0.15088177661659047
+F1 Score: 0.16916880263639691
+==Testing on training data with frequency threshold: 36705242
+Precision: 0.167
+Recall: 0.1041796631316282
+F1 Score: 0.12831348444102958
+==Testing on training data with frequency threshold: 49511154
+Precision: 0.12375
+Recall: 0.0593881223755249
+F1 Score: 0.08025942440210783
+==Testing on training data with frequency threshold: 66071316
+Precision: 0.08833333333333333
+Recall: 0.029859154929577466
+F1 Score: 0.04463157894736842
+==Testing on training data with frequency threshold: 91777527
+Precision: 0.0625
+Recall: 0.013027618551328817
+F1 Score: 0.021561017680034496
+==Testing on training data with frequency threshold: 155103052
+Precision: 0.035
+Recall: 0.003360537686029765
+F1 Score: 0.006132282084975909
+
+Best threshold: 9039 (0.43473684210526314, 0.9317540891144952, 0.5928584245469226)
+2. DEV DATA
+Precision: 0.422550052687039
+Recall: 0.9218390804597701
+F1 Score: 0.5794797687861272
+
+================
+Evaluating Model: Naive Bayes
+1. TRAIN DATA
+Precision: 0.4853700516351119
+Recall: 0.7808029533917858
+F1 Score: 0.5986202016628339
+2. DEV DATA
+Precision: 0.4610983981693364
+Recall: 0.7840466926070039
+F1 Score: 0.5806916426512969
+
+================
+Evaluating Model: Logistic Regression
+1. TRAIN DATA
+Precision: 0.38414634146341464
+Recall: 0.02823845809054236
+F1 Score: 0.05260960334029228
+2. DEV DATA
+Precision: 0.35555555555555557
+Recall: 0.028119507908611598
+F1 Score: 0.0521172638436482
