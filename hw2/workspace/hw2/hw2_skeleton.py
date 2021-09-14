@@ -209,17 +209,22 @@ def word_frequency_threshold(training_file, development_file, counts):
 
 ### 2.4: Naive Bayes
 
-def get_features(words, counts):
+def get_features(words, counts, standardize=False):
     length = [len(word) for word in words]
     frequency = [counts[word] for word in words]
-    return np.array([*zip(length, frequency)])
+    features = np.array([*zip(length, frequency)])
+    if standardize:
+        fmean = np.mean(features, axis=0)
+        fstd = np.std(features, axis=0)
+        return (features - fmean) / fstd, fmean, fstd
+    return features
 
 
 def apply_sk_model(model, training_file, development_file, counts):
     # train
     print("1. TRAIN DATA")
     train_words, train_labels = load_file(training_file)
-    X_train = get_features(train_words, counts)
+    X_train, train_mean, train_std = get_features(train_words, counts, standardize=True)
     y_train = np.array(train_labels)
     model.fit(X_train, y_train)
     train_pred = model.predict(X_train)
@@ -231,7 +236,8 @@ def apply_sk_model(model, training_file, development_file, counts):
     print("2. DEV DATA")
     dev_words, dev_labels = load_file(development_file)
     X_dev = get_features(dev_words, counts)
-    dev_pred = model.predict(X_dev)
+    standardized_X_dev = (X_dev - train_mean) / train_std
+    dev_pred = model.predict(standardized_X_dev)
 
     development_performance = get_metrics(dev_pred, dev_labels)
     test_predictions(dev_pred, dev_labels)
