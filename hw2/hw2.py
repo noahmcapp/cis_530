@@ -3,16 +3,27 @@
 # system modules
 import os
 import sys
+import time
 import gzip
+import math
 import argparse
 from collections import defaultdict
 
 # installed modules
 import numpy as np
+from sklearn.naive_bayes import GaussianNB
+from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
+from nltk.corpus import wordnet as wn
+
+# plotting modules
 from matplotlib import pyplot as plt
 import seaborn as sns; sns.set()
 sns.set_style("whitegrid")
 plt.rcParams['axes.prop_cycle'] = plt.cycler(color=sns.color_palette("Set2"))
+
+# custom modules
+from syllables import count_syllables
 
 #### 1. Evaluation Metrics ####
 
@@ -22,56 +33,48 @@ plt.rcParams['axes.prop_cycle'] = plt.cycler(color=sns.color_palette("Set2"))
 # converts predictions into TP, FN, FP, and TN
 # NOTE: based on https://en.wikipedia.org/wiki/Receiver_operating_characteristic
 def score(y_pred, y_true):
-    tp, fn, fp, tn = 0, 0, 0, 0
+    results = {"tp": 0, "fn": 0, "fp": 0, "tn": 0}
     for hyp, ref in zip(y_pred, y_true):
         if ref == 1:
             if hyp == 1:
-                tp += 1
+                results["tp"] += 1
             else:
-                fn += 1
+                results["fn"] += 1
         else:
             if hyp == 1:
-                fp += 1
+                results["fp"] += 1
             else:
-                tn += 1
-    return tp, fn, fp, tn
+                results["tn"] += 1
+    return results
 #
 # end of score
 
-# calculates the precision of the 
+# calculates the precision of the predicted labels
 def get_precision(y_pred, y_true):
-    tp, fn, fp, tn = score(y_pred, y_true)
-    if tp + fp == 0:
-        return 1
-    else:
-        return (tp) / float(tp + fp)
-#
-# end of get_precision
-    
-## Calculates the recall of the predicted labels
-def get_recall(y_pred, y_true):
-    tp, fn, fp, tn = score(y_pred, y_true)
-    if tp + fn == 0:
-        return 1
-    else:
-        return (tp) / float(tp + fn)
+    results = score(y_pred, y_true)
+    total_pred_pos = float(results["tp"] + results["fp"])
+    return results["tp"] / total_pred_pos if total_pred_pos else 1
 #
 # end of get_precision
 
-# TODO: this is bad coding, since we call score a bunch of times
-#        however functions might need these arguments for gradescope?
-## Calculates the f-score of the predicted labels
+## calculates the recall of the predicted labels
+def get_recall(y_pred, y_true):
+    results = score(y_pred, y_true)
+    total_pos = results["tp"] + results["fn"]
+    return results["tp"] / total_pos if total_pos else 1
+#
+# end of get_recall
+
+## calculates the f-score of the predicted labels
 def get_fscore(y_pred, y_true):
-    tp, fn, fp, tn = score(y_pred, y_true)    
     precision = get_precision(y_pred, y_true)
     recall = get_recall(y_pred, y_true)
-    if precision + recall == 0:
-        return 0
-    else:
-        return 2 * (precision * recall) / (precision + recall)
+    den = precision + recall
+    return 2 * (precision * recall) / den if den else 0
 #
 # end of get_fscore
 
+# generates precision, recall, and fscore metrics
 def get_metrics(y_pred, y_true):
     precision = get_precision(y_pred, y_true)
     recall = get_recall(y_pred, y_true)
@@ -79,6 +82,17 @@ def get_metrics(y_pred, y_true):
     return precision, recall, fscore
 #
 # end of get_metrics
+
+# prints out the precision, recall, and f-score of the predictions
+def test_predictions(y_pred, y_true):
+    precision, recall, fscore = get_metrics(y_pred, y_true)
+    print("** Results **")
+    print("\tPrecision: %.4f" % precision)
+    print("\tRecall: %.4f" % recall)
+    print("\tF1 Score: %.4f" % fscore)
+    print("** End of Results ** \n")
+#
+# end of test_predictions
 
 # calculates the avg. precision (AP) or area under the curve (AUC)
 #  of the PR curve
@@ -88,24 +102,76 @@ def get_ap(pr_x, pr_y):
 #
 # end of get_ap
 
-# prints out the precision, recall, and f-score of the predictions
-def test_predictions(y_pred, y_true):
-    precision, recall, fscore = get_metrics(y_pred, y_true)
-    print("** Results **")
-    print("Precision: %.4f" % precision)
-    print("Recall: %.4f" % recall)
-    print("F1 Score: %.4f" % fscore)
-    print("** End of Results ** \n")
-#
-# end of test_predictions
+# generates a PR curve out of a list of probabilities and associated labels
+def gen_pr(name, probs, labels):
 
+    # sort the probs and labels from most to least confident
+    labels = np.array(labels)
+    i = np.argsort(probs)[::-1]
+    probs = probs[i]
+    labels = labels[i]
+
+    # get the TP/FP decisions
+    results = labels == 1
+
+    # calculate the rolling sum of TPs, from most to least confident
+    cumulative_tp = np.cumsum(results)
+
+    # calculate rolling precision from most to least confident
+    # prec = TP / Number of Detections
+    precision = cumulative_tp / np.arange(1, results.shape[0]+1)
+
+    # calculate rolling recall from most to least confident
+    # rec = TP / Number of Positives
+    recall = cumulative_tp / sum(labels)
+
+    # write pr curve to file
+    write_data(name, recall, precision)
+#
+# end of gen_pr
+
+# writes and reads numpy array to/from files
+def write_data(name, x, y):
+    np.save('out/data/%s_x.npy' % name, x)
+    np.save('out/data/%s_y.npy' % name, y)
+#
+# end of write_data
+
+def read_data(name):
+    x = np.load('out/data/%s_x.npy' % name)
+    y = np.load('out/data/%s_y.npy' % name)
+    return x, y
+#
+# end of read_data
+
+# plots a PR curve on the given axis
+def plot(ax, x, y, label):
+
+    # plot the PR curve, with the AP value in it's label
+    ax.plot(x, y, label='%s -- AP = %.2f' % (label, get_ap(x, y)), zorder=1)
+
+    # plot a star on the PR curve for the max F1 value
+    num = 2 * (x * y)
+    den = x + y
+    f1 = np.divide(num, den, out=np.zeros_like(num), where=den!=0)
+    i = np.argmax(f1)
+    ax.plot(x[i], y[i], '*', markersize=8, color='black', zorder=2)
+
+    # set the axes
+    ax.set_xlabel('Recall')
+    ax.set_ylabel('Precision')
+    ax.set_title('Precision-Recall Curves\nWord Complexity Classifier')
+    ax.set_xlim([0,1])
+    ax.set_ylim([0,1])
+#
+# end of plot
 
 #### 2. Complex Word Identification ####
 
 ## Loads in the words and labels of one of the datasets
 def load_file(data_file):
     words = []
-    labels = []   
+    labels = []
     with open(data_file, 'rt', encoding="utf8") as f:
         i = 0
         for line in f:
@@ -128,7 +194,7 @@ def all_complex_feature(words):
 # end of all_complex_feature
 
 # classifies all words as complex
-def all_complex(data_file):
+def all_complex(data_file, pr=False):
 
     # load the data
     words, y_true = load_file(data_file)
@@ -139,13 +205,27 @@ def all_complex(data_file):
     # calculate the results
     test_predictions(y_pred, y_true)
     performance = get_metrics(y_pred, y_true)
+
+    # generate the PR curve
+    if pr:
+        gen_pr('majority_pr', np.array(y_pred), y_true)
+
     return performance
 #
 # end of all_complex
 
+# algorithm for just selecting the majority class as a baseline
+def majority_class(training_file, development_file):
+    print(' ---> Processing Training Data <--- ')
+    all_complex(training_file)
+    print(' ---> Processing Development Data <--- ')
+    all_complex(development_file, pr=True)
+#
+# end of majority_class
+
 ### 2.2: Word length thresholding
 
-# calculates the length of each word as the feature vector
+# gets whether or not each word length is above the threshold
 def length_threshold_feature(words, threshold):
     feats = [1 if len(word) >= threshold else 0 for word in words]
     return feats
@@ -153,9 +233,9 @@ def length_threshold_feature(words, threshold):
 # end of length_threshold_feature
 
 # classifies each word based on the length, assuming longer means more complex
-# NOTE: the threshold used for development data is the threshold which yields the
+# NOTE: the threshold used for dev data is the threshold which yields the
 #       highest F1 Score for the training data
-def word_length_threshold(training_file, development_file, thresh=0):
+def word_length_threshold(training_file, development_file):
 
     # load the training and development data
     words_trn, y_true_trn = load_file(training_file)
@@ -163,10 +243,10 @@ def word_length_threshold(training_file, development_file, thresh=0):
 
     # loop through thresholds
     mx_thresh = max([len(x) for x in words_trn])
-    mi_thresh = min([len(x) for x in words_trn])    
+    mi_thresh = min([len(x) for x in words_trn])
     pr_x, pr_y, scores = [], [], []
     thresholds = list(range(mx_thresh-1, mi_thresh-1, -1))
-    print(' ---> Testing Thresholds Between %d and %d' % (mi_thresh, mx_thresh))
+    print(' ---> Testing Thresholds Between %d and %d <--- ' % (mi_thresh, mx_thresh))
     for thresh in thresholds:
 
         # generate predictions for each threshold
@@ -174,7 +254,7 @@ def word_length_threshold(training_file, development_file, thresh=0):
 
         # calculate and store the performance
         p, r, f = get_metrics(y_pred, y_true_trn)
-        
+
         # store the data for a PR curve
         pr_x.append(r)
         pr_y.append(p)
@@ -182,30 +262,14 @@ def word_length_threshold(training_file, development_file, thresh=0):
     #
     # end of threshold loop
 
-    # calculate the area under the curve
-    ap = get_ap(pr_x, pr_y)
-    
     # get the optimal threshold from the training results
-    mx_rec_ind = np.argmax(pr_x)    
-    mx_prec_ind = np.argmax(pr_y)
     optimal_ind = np.argmax(scores)
     thresh = thresholds[optimal_ind]
     print(' ---> Calculated Optimal Length Threshold: %d <--- ' % thresh)
 
-    # plot the PR curve
-    fig, axs = plt.subplots(1,1)
-    ax = axs
-    ax.plot(pr_x, pr_y)
-    ax.plot(pr_x[optimal_ind], pr_y[optimal_ind], '.', markersize=10,
-               label='Max. F1 -- Threshold = %d' % thresh)
-    ax.set_xlabel('Recall')
-    ax.set_ylabel('Precision')
-    ax.set_title('Length Threshold Sweep -- AUC = %.4f' % ap)
-    ax.set_xlim([0,1])
-    ax.set_ylim([0,1])
-    ax.legend()
-    plt.savefig('plots/length_threshold.png')
-    
+    # write out the pr curve
+    write_data('length_pr', pr_x, pr_y)
+
     # generate the final predictions
     print(' -----> Generating Training Predictions <----- ')
     y_pred_trn = length_threshold_feature(words_trn, thresh)
@@ -213,7 +277,7 @@ def word_length_threshold(training_file, development_file, thresh=0):
     print(' -----> Generating Development Predictions <----- ')
     y_pred_dev = length_threshold_feature(words_dev, thresh)
     test_predictions(y_pred_dev, y_true_dev)
-    
+
     # calculate the results
     training_performance = get_metrics(y_pred_trn, y_true_trn)
     development_performance = get_metrics(y_pred_dev, y_true_dev)
@@ -225,44 +289,230 @@ def word_length_threshold(training_file, development_file, thresh=0):
 ### 2.3: Word frequency thresholding
 
 ## Loads Google NGram counts
-def load_ngram_counts(ngram_counts_file): 
-   counts = defaultdict(int) 
-   with gzip.open(ngram_counts_file, 'rt') as f: 
+def load_ngram_counts(ngram_counts_file):
+   counts = defaultdict(int)
+   with gzip.open(ngram_counts_file, 'rt') as f:
        for line in f:
-           token, count = line.strip().split('\t') 
-           if token[0].islower(): 
-               counts[token] = int(count) 
+           token, count = line.strip().split('\t')
+           if token[0].islower():
+               counts[token] = int(count)
    return counts
 
 # Finds the best frequency threshold by f-score, and uses this threshold to
 ## classify the training and development set
 
-## Make feature matrix for word_frequency_threshold
+# gets whether or not each word frequency is below the threshold
 def frequency_threshold_feature(words, threshold, counts):
-    pass
-def word_frequency_threshold(training_file, development_file, counts):
-    ## YOUR CODE HERE
-    training_performance = [tprecision, trecall, tfscore]
-    development_performance = [dprecision, drecall, dfscore]
-    return training_performance, development_performance
+    feats = [1 if counts[word] < threshold else 0 for word in words]
+    return feats
+#
+# end of frequency_threshold_feature
 
-### 2.4: Naive Bayes
-        
+def frequency_cdf(words, counts, base):
+    freqs = np.array([counts[x] for x in words])
+    freqs = np.sort(freqs)
+    cdf = np.array(range(len(freqs)))/float(len(freqs))
+    fig, ax = plt.subplots(1,1)
+    ax.plot(freqs, cdf)
+    ax.set_xscale('log', base=base)
+    ax.set_xlabel('Log Spaced Word Frequencies')
+    ax.set_title('CDF of Unigram Frequencies')
+    plt.savefig('out/plots/frequency_cdf.png')
+
+# classifies each word based on the frequency of it's unigram, assuming less frequent = more complex
+# NOTE: the threshold used for development data is the threshold which yields the
+#       highest F1 Score for the training data
+def word_frequency_threshold(training_file, development_file, counts, n_thresh):
+
+    # load the training and development data
+    words_trn, y_true_trn = load_file(training_file)
+    words_dev, y_true_dev = load_file(development_file)
+
+    # plot the cdf to inform the threshold sampling
+    base = 10
+    frequency_cdf(words_trn, counts, base)
+
+    # generate a log spaced set of thresholds to test
+    mx_thresh = max(counts.values())
+    thresholds = np.logspace(np.log(1) / np.log(base),
+                             np.log(mx_thresh) / np.log(base),
+                             num=n_thresh, base=base)
+
+    # loop through thresholds
+    print(' ---> Testing Thresholds up to %.2e <--- ' % (mx_thresh))
+    t0 = time.time()
+    pr_x, pr_y, scores = [], [], []
+    for thresh in thresholds:
+
+        # generate predictions for each threshold
+        y_pred = frequency_threshold_feature(words_trn, thresh, counts)
+
+        # calculate and store the peprformance
+        p, r, f = get_metrics(y_pred, y_true_trn)
+
+        # store the data for a PR curve
+        pr_x.append(r)
+        pr_y.append(p)
+        scores.append(f)
+    #
+    # end of threshold loop
+
+    t1 = time.time()
+    print(' ---> Tested %.2e Thresholds in %.2f Seconds <--- ' % \
+          (n_thresh, t1-t0))
+
+    # write out the pr curve
+    write_data('freq_pr', pr_x, pr_y)
+
+    # get the optimal threshold from the training results
+    optimal_ind = np.argmax(scores)
+    thresh = thresholds[optimal_ind]
+    print(' ---> Calculated Optimal Frequency Threshold: %d <--- ' % thresh)
+
+    # generate the final predictions
+    print(' -----> Generating Training Predictions <----- ')
+    y_pred_trn = frequency_threshold_feature(words_trn, thresh, counts)
+    test_predictions(y_pred_trn, y_true_trn)
+    print(' -----> Generating Development Predictions <----- ')
+    y_pred_dev = frequency_threshold_feature(words_dev, thresh, counts)
+    test_predictions(y_pred_dev, y_true_dev)
+
+    # calculate the results
+    training_performance = get_metrics(y_pred_trn, y_true_trn)
+    development_performance = get_metrics(y_pred_dev, y_true_dev)
+
+    return training_performance, development_performance
+#
+# end of word_frequency_threshold
+
+# generates feature vectors for various word features
+def length_feature(words):
+    return np.array([len(x) for x in words])[:, None].astype(float)
+def frequency_feature(words, counts):
+    return np.array([counts[x] for x in words])[:, None].astype(float)
+def syllables_feature(words):
+    return np.array([count_syllables(x) for x in words])[:, None].astype(float)
+def synonyms_feature(words):
+    return np.array([len(wn.synsets(x)) for x in words])[:, None].astype(float)
+#
+# end of feature vectors
+
+# generates a set of features built from various feature vectors
+def gen_feats(words, counts, feat_set=0):
+    if feat_set == 0:
+        length = length_feature(words)
+        frequency = frequency_feature(words, counts)
+        feats = np.concatenate([length, frequency], axis=1)
+    elif feat_set == 1:
+        length = length_feature(words)
+        frequency = frequency_feature(words, counts)
+        syllables = syllables_feature(words)
+        synonyms = synonyms_feature(words)
+
+        # TODO: get bigram or even trigram frequencies??
+
+        # TODO: load webster unique words in definition
+        # https://api.dictionaryapi.dev/api/v2/entries/en/python
+
+        feats = np.concatenate(
+            [length, frequency, syllables, synonyms],
+            axis=1)
+    #
+    # end of feature set selection
+
+    return feats
+#
+# end of load_feats
+
+# standardizes the trn and dev features by the trn mean and stdev
+def norm(trn, dev):
+    mu = np.mean(trn, axis=0)
+    sigma = np.std(trn, axis=0)
+    trn = (trn - mu) / sigma
+    dev = (dev - mu) / sigma
+    return trn, dev
+#
+# end of norm
+
+# loads the trn and dev data, then generates a feature set
+def load_feats(training_file, development_file, counts, feat_set):
+
+    # load the training and development data
+    words_trn, y_true_trn = load_file(training_file)
+    words_dev, y_true_dev = load_file(development_file)
+
+    # generate the feature set
+    feats_trn = gen_feats(words_trn, counts, feat_set)
+    feats_dev = gen_feats(words_dev, counts, feat_set)
+
+    # normalize the features
+    feats_trn, feats_dev = norm(feats_trn, feats_dev)
+
+    return feats_trn, y_true_trn, feats_dev, y_true_dev
+#
+# end of load_feats
+
+# trains and decodes an sklearn model
+def run_sk_model(clf, feats_trn, y_true_trn, feats_dev, y_true_dev, name):
+
+    # train the model
+    print(' ---> Training the Model <--- ')
+    clf.fit(feats_trn, y_true_trn)
+
+    # generate the final predictions
+    print(' -----> Generating Training Predictions <----- ')
+    y_pred_trn = clf.predict(feats_trn)
+    test_predictions(y_pred_trn, y_true_trn)
+    print(' -----> Generating Development Predictions <----- ')
+    y_pred_dev = clf.predict(feats_dev)
+    test_predictions(y_pred_dev, y_true_dev)
+
+    # calculate the results
+    training_performance = get_metrics(y_pred_trn, y_true_trn)
+    development_performance = get_metrics(y_pred_dev, y_true_dev)
+
+    # generate and write the pr curve
+    probs_dev = clf.predict_proba(feats_dev)[:, 1]
+    gen_pr(name, probs_dev, y_true_dev)
+
+    return training_performance, development_performance
+#
+# end of run_sk_model
+
 ## Trains a Naive Bayes classifier using length and frequency features
-def naive_bayes(training_file, development_file, counts):
-    ## YOUR CODE HERE
-    training_performance = (tprecision, trecall, tfscore)
-    development_performance = (dprecision, drecall, dfscore)
-    return development_performance
+def naive_bayes(training_file, development_file, counts, feat_set=0):
+
+    # load the features
+    feats_trn, y_true_trn, feats_dev, y_true_dev = load_feats(
+        training_file, development_file, counts, feat_set)
+
+    # initialize the model
+    clf = GaussianNB()
+
+    # train and decode the model
+    return run_sk_model(
+        clf, feats_trn, y_true_trn, feats_dev, y_true_dev, 'naive_bayes_pr')
+#
+# end of naive_bayes
 
 ### 2.5: Logistic Regression
 
 ## Trains a Naive Bayes classifier using length and frequency features
-def logistic_regression(training_file, development_file, counts):
-    ## YOUR CODE HERE    
-    training_performance = (tprecision, trecall, tfscore)
-    development_performance = (dprecision, drecall, dfscore)
-    return development_performance
+def logistic_regression(training_file, development_file, counts, feat_set=0):
+
+    # load the features
+    feats_trn, y_true_trn, feats_dev, y_true_dev = load_feats(
+        training_file, development_file, counts, feat_set)
+
+    # initialize the model
+    clf = LogisticRegression()
+
+    # train and decode the model
+    return run_sk_model(
+        clf, feats_trn, y_true_trn, feats_dev, y_true_dev,
+        'logistic_regression_pr')
+#
+# end of logistic_regression
 
 ### 2.7: Build your own classifier
 
@@ -270,6 +520,27 @@ def logistic_regression(training_file, development_file, counts):
 ## and writes the predicted labels to the text file 'test_labels.txt',
 ## with ONE LABEL PER LINE
 
+# TODO: need to evaluate the test_labels.txt file
+# runs the best classifier against trn, dev, and test data
+def model01(training_file, development_file, counts, feat_set):
+
+    # load the features
+    feats_trn, y_true_trn, feats_dev, y_true_dev = load_feats(
+        training_file, development_file, counts, feat_set)
+
+    # TODO: try log-linear models, like elastic net, is this log-linear?
+    # https://scikit-learn.org/stable/modules/linear_model.html
+    # initialize the model
+    clf = MLPClassifier((300,200,100,50), random_state=1, max_iter=500)
+
+    # train and decode the model
+    return run_sk_model(
+        clf, feats_trn, y_true_trn, feats_dev, y_true_dev, 'model01_pr')
+#
+# end of model01
+
+# defines the locations of the data, parses command line for set of algos to
+#  run, then runs them and plots their PR curves
 def main(argv):
 
     # define location of data
@@ -277,40 +548,89 @@ def main(argv):
     development_file = "data/complex_words_development.txt"
     test_file = "data/complex_words_test_unlabeled.txt"
     ngram_counts_file = "ngram_counts.txt.gz"
+    counts = None
 
     # parse the arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('-algo', type=str, required=True,
+    parser.add_argument('-algo', type=str, nargs='*', required=True,
                         help="name of algorithm to run",
-                        choices=['basic', 'length', 'ngram'])
+                        choices=['majority', 'length', 'freq', 'nb', 'lr',
+                                 'model01', 'model02'])
+    parser.add_argument('-ngram_nthresh', type=int, required=False,
+                        help="number of thresholds to test in the ngram algorithm",
+                        default=1000)
+    parser.add_argument('-feat_set', type=int, required=False,
+                        help="feature set to use", default=0, choices=[0,1])
     args = parser.parse_args()
 
     # make sure the directory is setup properly
-    if not os.path.exists('plots/'):
-        os.makedirs('plots')
-    
-    if args.algo == 'basic':
-        print(' -> Running Simple All Complex Baseline <- ')
-        print(' ---> Processing Training Data <--- ')
-        all_complex(training_file)
-        print(' ---> Processing Development Data <--- ')
-        all_complex(development_file)
-    elif args.algo == 'length':
-        print(' -> Running Word Length Thresholder <- ')
-        word_length_threshold(training_file, development_file)
-    elif args.algo == 'ngram':
+    if not os.path.exists('out/'):
+        os.makedirs('out/')
+    if not os.path.exists('out/data'):
+        os.makedirs('out/data')
+    if not os.path.exists('out/plots'):
+        os.makedirs('out/plots')
+
+    # load the word frequencies
+    if counts is None:
+        print(' ** Loading NGrams Data ** ')
         counts = load_ngram_counts(ngram_counts_file)
-        print(len(counts))
-        word_frequency_threshold(training_file, development_file, counts)
-    else:
-        pass
+
+    curves, labels = [], []
+    for algo in args.algo:
+        if algo == 'majority':
+            print('\n -> Running Majority Class Baseline <- ')
+            majority_class(training_file, development_file)
+            curves.append(read_data('majority_pr'))
+            labels.append('Majority Class')
+        elif algo == 'length':
+            print('\n -> Running Word Length Thresholder <- ')
+            word_length_threshold(training_file, development_file)
+            curves.append(read_data('length_pr'))
+            labels.append('Length Threshold')
+        elif algo == 'freq':
+            print('\n -> Running Word Frequency Thresholder <- ')
+            word_frequency_threshold(training_file, development_file, counts,
+                                     args.ngram_nthresh)
+            curves.append(read_data('freq_pr'))
+            labels.append('Frequency Threshold')
+        elif algo == 'nb':
+            print('\n -> Naive Bayes Classifier <- ')
+            naive_bayes(training_file, development_file,
+                        counts, args.feat_set)
+            curves.append(read_data('naive_bayes_pr'))
+            labels.append('Naive Bayes')
+        elif algo == 'lr':
+            print('\n -> Running Logistic Regression Classifier <- ')
+            logistic_regression(training_file, development_file,
+                                counts, args.feat_set)
+            curves.append(read_data('logistic_regression_pr'))
+            labels.append('Logistic Regression')
+        elif algo == 'model01':
+            print('\n -> Running Classifier #01 <- ')
+            model01(training_file, development_file,
+                    counts, args.feat_set)
+            curves.append(read_data('model01_pr'))
+            labels.append('MLP')
+        else:
+            pass
     #
     # end of algorithms
+
+    # plot the PR curves
+    fig, axs = plt.subplots(1,1)
+    ax = axs
+    for i in range(len(curves)):
+        x, y = curves[i]
+        label = labels[i]
+        plot(ax, x, y, label)
+    ax.legend()
+    plt.savefig('out/plots/pr_curves.png', dpi=500)
 #
 # end of main
 
 if __name__ == "__main__":
     main(sys.argv)
-    
+
 #
 # end of file
