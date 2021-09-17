@@ -11,14 +11,20 @@ from collections import defaultdict
 
 # installed modules
 import numpy as np
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, BaggingClassifier
+from sklearn.model_selection import GridSearchCV
 from sklearn.naive_bayes import GaussianNB
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.neural_network import MLPClassifier
+from sklearn.svm import SVC
 from nltk.corpus import wordnet as wn
 
 # plotting modules
 from matplotlib import pyplot as plt
-import seaborn as sns; sns.set()
+import seaborn as sns
+from sklearn.tree import DecisionTreeClassifier
+
+sns.set()
 sns.set_style("whitegrid")
 plt.rcParams['axes.prop_cycle'] = plt.cycler(color=sns.color_palette("Set2"))
 
@@ -467,6 +473,9 @@ def run_sk_model(clf, feats_trn, y_true_trn, feats_dev, y_true_dev, name):
     y_pred_dev = clf.predict(feats_dev)
     test_predictions(y_pred_dev, y_true_dev)
 
+    if isinstance(clf, GridSearchCV):
+        print("Model best params:", clf.best_params_)
+
     # calculate the results
     training_performance = get_metrics(y_pred_trn, y_true_trn)
     development_performance = get_metrics(y_pred_dev, y_true_dev)
@@ -531,13 +540,102 @@ def model01(training_file, development_file, counts, feat_set):
     # TODO: try log-linear models, like elastic net, is this log-linear?
     # https://scikit-learn.org/stable/modules/linear_model.html
     # initialize the model
-    clf = MLPClassifier((300,200,100,50), random_state=1, max_iter=500)
+    # params = {
+    #     'max_iter': [200, 500],
+    #     'alpha': [1e-4, 1e-3, 1e-2]
+    # }
+    # clf = GridSearchCV(MLPClassifier((300,200,100,50), random_state=1), params)
+    clf = MLPClassifier((300, 200, 100, 50), random_state=1, max_iter=500)
 
     # train and decode the model
     return run_sk_model(
         clf, feats_trn, y_true_trn, feats_dev, y_true_dev, 'model01_pr')
 #
 # end of model01
+
+# SVM model
+def model02(training_file, development_file, counts, feat_set):
+    # load the features
+    feats_trn, y_true_trn, feats_dev, y_true_dev = load_feats(
+        training_file, development_file, counts, feat_set)
+
+    # initialize the model
+    params = {
+        'penalty': ['l2', 'l1', 'elasticnet'],
+        'alpha': [1e-2, 1e-3, 1e-4],
+        'max_iter': [100, 1000, 5000],
+    }
+    clf = GridSearchCV(SGDClassifier(random_state=42), params)
+
+    # train and decode the model
+    result = run_sk_model(
+        clf, feats_trn, y_true_trn, feats_dev, y_true_dev, 'model02_svm')
+
+    return result
+
+
+# SVM model
+def model03(training_file, development_file, counts, feat_set):
+    # load the features
+    feats_trn, y_true_trn, feats_dev, y_true_dev = load_feats(
+        training_file, development_file, counts, feat_set)
+
+    # initialize the model
+    params = {
+        'n_estimators': [10, 100, 1000],
+        'criterion': ["gini", "entropy"],
+        'max_depth': [None, 3, 10, 100]
+    }
+    clf = GridSearchCV(RandomForestClassifier(random_state=42), params)
+
+    # train and decode the model
+    result = run_sk_model(
+        clf, feats_trn, y_true_trn, feats_dev, y_true_dev, 'model03_rf')
+    # Best Params: {'criterion': 'entropy', 'max_depth': 10, 'n_estimators': 100}
+
+    return result
+
+
+# AdaBoostClassifier
+def model04(training_file, development_file, counts, feat_set):
+    # load the features
+    feats_trn, y_true_trn, feats_dev, y_true_dev = load_feats(
+        training_file, development_file, counts, feat_set)
+
+    # initialize the model
+    params = {
+        'n_estimators': [10, 50, 100],
+        'learning_rate': [1, 0.01, 0.001]
+    }
+    clf = GridSearchCV(AdaBoostClassifier(random_state=42), params)
+
+    # train and decode the model
+    result = run_sk_model(
+        clf, feats_trn, y_true_trn, feats_dev, y_true_dev, 'model04_ada')
+
+    return result
+
+
+# Decision Tree
+def model05(training_file, development_file, counts, feat_set):
+    # load the features
+    feats_trn, y_true_trn, feats_dev, y_true_dev = load_feats(
+        training_file, development_file, counts, feat_set)
+
+    # initialize the model
+    params = {
+        'criterion': ["gini", "entropy"],
+        'max_depth': [None, 5, 10],
+        'max_leaf_nodes': [None, 5, 10]
+    }
+    clf = GridSearchCV(DecisionTreeClassifier(random_state=42), params)
+
+    # train and decode the model
+    result = run_sk_model(
+        clf, feats_trn, y_true_trn, feats_dev, y_true_dev, 'model05_dt')
+
+    return result
+
 
 # defines the locations of the data, parses command line for set of algos to
 #  run, then runs them and plots their PR curves
@@ -555,7 +653,7 @@ def main(argv):
     parser.add_argument('-algo', type=str, nargs='*', required=True,
                         help="name of algorithm to run",
                         choices=['majority', 'length', 'freq', 'nb', 'lr',
-                                 'model01', 'model02'])
+                                 'model01', 'model02', 'model03', 'model04', 'model05'])
     parser.add_argument('-ngram_nthresh', type=int, required=False,
                         help="number of thresholds to test in the ngram algorithm",
                         default=1000)
@@ -612,6 +710,30 @@ def main(argv):
                     counts, args.feat_set)
             curves.append(read_data('model01_pr'))
             labels.append('MLP')
+        elif algo == 'model02':
+            print('\n -> Running Classifier #02 <- ')
+            model02(training_file, development_file,
+                    counts, args.feat_set)
+            curves.append(read_data('model02_svm'))
+            labels.append('SVM')
+        elif algo == 'model03':
+            print('\n -> Running Classifier #03 <- ')
+            model03(training_file, development_file,
+                    counts, args.feat_set)
+            curves.append(read_data('model03_rf'))
+            labels.append('RandomForest')
+        elif algo == 'model04':
+            print('\n -> Running Classifier #04 <- ')
+            model04(training_file, development_file,
+                    counts, args.feat_set)
+            curves.append(read_data('model04_ada'))
+            labels.append('AdaBoost')
+        elif algo == 'model05':
+            print('\n -> Running Classifier #05 <- ')
+            model05(training_file, development_file,
+                    counts, args.feat_set)
+            curves.append(read_data('model05_dt'))
+            labels.append('DecisionTree')
         else:
             pass
     #
