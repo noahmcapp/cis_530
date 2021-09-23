@@ -10,25 +10,24 @@ from collections import defaultdict, Counter
 
 # installed modules
 import numpy as np
+from nltk.corpus import wordnet as wn
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.neural_network import MLPClassifier
-from nltk.corpus import wordnet as wn
+from sklearn.tree import DecisionTreeClassifier
+
 
 # plotting modules
 from matplotlib import pyplot as plt
 import seaborn as sns
-from sklearn.tree import DecisionTreeClassifier
-
 sns.set()
 sns.set_style("whitegrid")
 plt.rcParams['axes.prop_cycle'] = plt.cycler(color=sns.color_palette("Set2"))
 
 # custom modules
 from syllables import count_syllables
-
 
 #### 1. Evaluation Metrics ####
 
@@ -445,7 +444,6 @@ def synonyms_feature(words):
     noun_counts = [len(wn.synsets(x, wn.NOUN)) for x in words]
     adj_counts = [len(wn.synsets(x, wn.ADJ)) for x in words]
     return np.array([verb_counts, noun_counts, adj_counts]).transpose().astype(float)
-    # return np.array([len(wn.synsets(x)) for x in words])[:, None].astype(float)
 
 
 def sentence_length(sentences):
@@ -483,24 +481,15 @@ def gen_feats(words, counts, feat_set=0, sentences=None):
         syllables = syllables_feature(words)
         synonyms = synonyms_feature(words)
 
-        # TODO: get bigram or even trigram frequencies??
-
-        # TODO: load webster unique words in definition
-        # https://api.dictionaryapi.dev/api/v2/entries/en/python
-
         sent_len = sentence_length(sentences)
         sent_word_count = sentence_word_count(sentences)
         sent_avg_freq = sentence_avg_word_freq(sentences)
         sent_avg_word_length = sentence_avg_word_length(sentences)
 
-        feats = np.concatenate(
-            [length, frequency, syllables, synonyms,
-             sent_len,
-             sent_avg_freq,
-             sent_word_count,
-             sent_avg_word_length
-             ],
-            axis=1)
+        feats = np.concatenate([
+            length, frequency, syllables, synonyms,
+            sent_len, sent_avg_freq, sent_word_count, sent_avg_word_length],
+                               axis=1)
     #
     # end of feature set selection
 
@@ -638,7 +627,9 @@ def model01(training_file, development_file, counts, feat_set):
     #     'alpha': [1e-4, 1e-3, 1e-2]
     # }
     # clf = GridSearchCV(MLPClassifier((300,200,100,50), random_state=1), params)
-    clf = MLPClassifier((300, 200, 100, 50), random_state=1, max_iter=500)
+    clf = MLPClassifier((50, 100, 500, 100, 50),
+                        random_state=1, learning_rate='adaptive',
+                        solver='sgd', activation='relu')
 
     # train and decode the model
     return run_sk_model(
@@ -660,7 +651,9 @@ def model02(training_file, development_file, counts, feat_set):
         'alpha': [1e-2, 1e-3, 1e-4],
         'max_iter': [100, 1000, 5000],
     }
-    clf = GridSearchCV(SGDClassifier(random_state=42), params)
+    clf = GridSearchCV(
+        SGDClassifier(random_state=42, loss='modified_huber'),
+        params)
 
     # train and decode the model
     result = run_sk_model(
