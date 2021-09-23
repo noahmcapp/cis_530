@@ -10,7 +10,6 @@ from collections import defaultdict, Counter
 
 # installed modules
 import numpy as np
-from nltk.corpus import wordnet as wn
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn.naive_bayes import GaussianNB
@@ -21,9 +20,6 @@ from sklearn.tree import DecisionTreeClassifier
 
 # plotting modules
 from matplotlib import pyplot as plt
-
-# custom modules
-from syllables import count_syllables
 
 #### 1. Evaluation Metrics ####
 
@@ -408,19 +404,6 @@ def gen_feats(words, counts, feat_set=0, sentences=None):
     frequency = frequency_feature(words, counts)
     if feat_set == 0:
         feats = np.concatenate([length, frequency], axis=1)
-    else:
-        syllables = syllables_feature(words)
-        synonyms = synonyms_feature(words)
-
-        sent_len = sentence_length(sentences)
-        sent_word_count = sentence_word_count(sentences)
-        sent_avg_freq = sentence_avg_word_freq(sentences)
-        sent_avg_word_length = sentence_avg_word_length(sentences)
-
-        feats = np.concatenate([
-            length, frequency, syllables, synonyms,
-            sent_len, sent_avg_freq, sent_word_count, sent_avg_word_length],
-                               axis=1)
     #
     # end of feature set selection
 
@@ -493,7 +476,7 @@ def run_sk_model(clf, feats_trn, y_true_trn, feats_dev, y_true_dev, name):
     # generate and write the pr curve
     probs_dev = clf.predict_proba(feats_dev)[:, 1]
 
-    return training_performance, development_performance
+    return development_performance
 
 
 #
