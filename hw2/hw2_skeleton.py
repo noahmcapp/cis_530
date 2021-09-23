@@ -21,10 +21,6 @@ from sklearn.tree import DecisionTreeClassifier
 
 # plotting modules
 from matplotlib import pyplot as plt
-import seaborn as sns
-sns.set()
-sns.set_style("whitegrid")
-plt.rcParams['axes.prop_cycle'] = plt.cycler(color=sns.color_palette("Set2"))
 
 # custom modules
 from syllables import count_syllables
