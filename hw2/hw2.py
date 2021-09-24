@@ -252,7 +252,7 @@ def load_file(data_file, feat_set=0):
                 line_split = line[:-1].split("\t")
                 words.append(line_split[0].lower())
                 labels.append(int(line_split[1]))
-                sentences.append(line_split[3].lower())
+                sentences.append(line_split[-2].lower())
             i += 1
     if feat_set == 0:
         return words, labels
