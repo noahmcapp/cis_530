@@ -1,4 +1,4 @@
-#!./env/bin/python
+#!/usr/bin/env python
 
 """ Contains the part of speech tagger class. """
 
