@@ -120,6 +120,50 @@ def get_ap(pr_x, pr_y):
 #
 # end of get_ap
 
+def error_analyze(probs, labels, words, sentences):
+
+    # sort the probs and labels from most to least confident
+    labels = np.array(labels)
+    i = np.argsort(probs)[::-1]
+    probs = probs[i]
+    labels = labels[i]
+    words = np.array(words)[i]
+    sentences = np.array(sentences)[i]
+    # get the results
+    tps, fps, fns, tns = [], [], [], []
+    for i in range(len(probs)):
+        if probs[i] > 0.5 and labels[i] == True:
+            tps.append(i)
+        if probs[i] > 0.5 and labels[i] == False:
+            fps.append(i)
+        if probs[i] <= 0.5 and labels[i] == True:
+            fns.append(i)
+        if probs[i] <= 0.5 and labels[i] == False:
+            tns.append(i)
+
+    N = 3
+    
+    # print some strong TP's and TN's
+    print('Strong True Complex')
+    for j in tps[:N]:
+        print_sample(probs[j], words[j], sentences[j])
+    print('Strong True Simple')
+    for j in tns[::-1][:N]:
+        print_sample(probs[j], words[j], sentences[j])
+
+    # print some weak FP's and FN's
+    print('Weak False Complex')
+    for j in fps[:N]:
+        print_sample(probs[j], words[j], sentences[j])
+    print('Weak False Simple')
+    for j in fns[::-1][:N]:
+        print_sample(probs[j], words[j], sentences[j])
+#
+# end of error_analyze
+
+def print_sample(prob, word, sentence):
+    print('\t%.4f, %s, %s' % (prob, word, sentence))
+                                                          
 # generates a PR curve out of a list of probabilities and associated labels
 def gen_pr(name, probs, labels):
     # sort the probs and labels from most to least confident
@@ -169,6 +213,7 @@ def read_data(name):
 
 # plots a PR curve on the given axis
 def plot(ax, x, y, label):
+
     # plot the PR curve, with the AP value in it's label
     ax.plot(x, y, label='%s -- AP = %.2f' % (label, get_ap(x, y)), zorder=1)
 
@@ -177,6 +222,8 @@ def plot(ax, x, y, label):
     den = x + y
     f1 = np.divide(num, den, out=np.zeros_like(num), where=den != 0)
     i = np.argmax(f1)
+    print('Model: %s\nPrecision: %s\nRecall: %s\nF1: %s\n' % (label, y[i], x[i], f1[i]))
+    print(i)
     ax.plot(x[i], y[i], '*', markersize=8, color='black', zorder=2)
 
     # set the axes
@@ -553,7 +600,7 @@ def load_feats(training_file, development_file, counts, feat_set):
 # end of load_feats
 
 # trains and decodes an sklearn model
-def run_sk_model(clf, feats_trn, y_true_trn, feats_dev, y_true_dev, name):
+def run_sk_model(clf, feats_trn, y_true_trn, feats_dev, y_true_dev, name, debug=False, words=None, sentences=None):
     # train the model
     print(' ---> Training the Model <--- ')
     clf.fit(feats_trn, y_true_trn)
@@ -577,6 +624,9 @@ def run_sk_model(clf, feats_trn, y_true_trn, feats_dev, y_true_dev, name):
     probs_dev = clf.predict_proba(feats_dev)[:, 1]
     gen_pr(name, probs_dev, y_true_dev)
 
+    if debug:        
+        error_analyze(probs_dev, y_true_dev, words, sentences)
+    
     return training_performance, development_performance
 
 
@@ -681,7 +731,7 @@ def model03(training_file, development_file, counts, feat_set):
     # load the features
     feats_trn, y_true_trn, feats_dev, y_true_dev = load_feats(
         training_file, development_file, counts, feat_set)
-
+    
     # initialize the model
     # params = {
     #     'n_estimators': [10, 100, 1000],
@@ -692,8 +742,9 @@ def model03(training_file, development_file, counts, feat_set):
     clf = RandomForestClassifier(random_state=42, criterion='entropy', max_depth=10, n_estimators=1000)
 
     # train and decode the model
+    words, labels, sentences = load_file(development_file, feat_set=1)
     result = run_sk_model(
-        clf, feats_trn, y_true_trn, feats_dev, y_true_dev, 'model03_rf')
+        clf, feats_trn, y_true_trn, feats_dev, y_true_dev, 'model03_rf', debug=True, words=words, sentences=sentences)
 
     return result
 
@@ -796,13 +847,13 @@ def main(argv):
         elif algo == 'nb':
             print('\n -> Naive Bayes Classifier <- ')
             naive_bayes(training_file, development_file,
-                        counts, args.feat_set)
+                        counts, 0)
             curves.append(read_data('naive_bayes_pr'))
             labels.append('Naive Bayes')
         elif algo == 'lr':
             print('\n -> Running Logistic Regression Classifier <- ')
             logistic_regression(training_file, development_file,
-                                counts, args.feat_set)
+                                counts, 1)
             curves.append(read_data('logistic_regression_pr'))
             labels.append('Logistic Regression')
         elif algo == 'model01':
@@ -847,8 +898,9 @@ def main(argv):
         x, y = curves[i]
         label = labels[i]
         plot(ax, x, y, label)
-    ax.legend()
+    ax.legend(ncol=2)
     plt.savefig('out/plots/pr_curves.png', dpi=500)
+    #plt.show()
 
     # run the best model on the testing data:
     trn_words, y_true_trn, trn_sentences = load_file(training_file, feat_set=1)
