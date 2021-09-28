@@ -1,6 +1,21 @@
 #!./env/bin/python
 
 """ Contains the part of speech tagger class. """
+import re
+
+
+class POSSentence:
+    def __init__(self, words, tag_sequence=None):
+        self.words = words
+        self.tags = tag_sequence
+
+    # TODO: Add suitable utility methods here if needed
+
+    def __str__(self):
+        if not self.tags:
+            return ' '.join(self.words)
+        return ' '.join([f"{word}/{tag}" for word, tag in zip(self.words, self.tags)])
+
 
 def load_data(sentence_file, tag_file=None):
     """Loads data from two files: one containing sentences and one containing tags.
@@ -10,7 +25,48 @@ def load_data(sentence_file, tag_file=None):
     Suggested to split the data by the document-start symbol.
 
     """
-    return []
+    # Read lines from provided files
+    word_lines = []
+    tag_lines = []
+    with open(sentence_file, 'r') as f:
+        for line in f:
+            word_lines.append(line.strip())
+    if tag_file:
+        with open(tag_file, 'r') as f:
+            for line in f:
+                tag_lines.append(line.strip())
+    else:
+        tag_lines = [None] * len(word_lines)
+
+    # extract words and tags into sentences from the lines
+    curr_words = []
+    curr_tags = []
+    sentences = []
+
+    for word_line, tag_line in zip(word_lines, tag_lines):
+        if word_line == 'id,word':
+            continue
+        word = re.sub(r'^\d+,', '', word_line)[1:-1]
+        if word == '-DOCSTART-':
+            if curr_words:
+                sentence = POSSentence([*curr_words])
+                if tag_file:
+                    sentence.tags = [*curr_tags]
+                sentences.append(sentence)
+                curr_words = []
+                curr_tags = []
+        else:
+            curr_words.append(word)
+            if tag_file:
+                tag = re.sub(r'^\d+,', '', tag_line)[1:-1]
+                curr_tags.append(tag)
+
+    sentence = POSSentence(curr_words)
+    if tag_file:
+        sentence.tags = curr_tags
+    sentences.append(sentence)
+    return sentences
+
 
 def evaluate(data, model):
     """Evaluates the POS model on some sentences and gold tags.
@@ -24,6 +80,7 @@ def evaluate(data, model):
     
     """
     pass
+
 
 class POSTagger():
     def __init__(self):
