@@ -47,7 +47,7 @@ def load_data(sentence_file, tag_file=None):
         if word_line == 'id,word':
             continue
         word = re.sub(r'^\d+,', '', word_line)[1:-1]
-        if word == '-DOCSTART-':
+        if word == '-DOCSTART-' or word == ".":
             if curr_words:
                 sentence = POSSentence([*curr_words])
                 if tag_file:
