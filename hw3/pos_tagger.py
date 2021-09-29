@@ -47,7 +47,12 @@ def load_data(sentence_file, tag_file=None):
         if word_line == 'id,word':
             continue
         word = re.sub(r'^\d+,', '', word_line)[1:-1]
+        tag = re.sub(r'^\d+,', '', tag_line)[1:-1] if tag_file else None
         if word == '-DOCSTART-' or word == ".":
+            if word == ".":
+                curr_words.append(".")
+                if tag_file:
+                    curr_tags.append(tag)
             if curr_words:
                 sentence = POSSentence([*curr_words])
                 if tag_file:
@@ -58,7 +63,6 @@ def load_data(sentence_file, tag_file=None):
         else:
             curr_words.append(word)
             if tag_file:
-                tag = re.sub(r'^\d+,', '', tag_line)[1:-1]
                 curr_tags.append(tag)
 
     sentence = POSSentence(curr_words)
