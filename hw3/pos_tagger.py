@@ -83,14 +83,16 @@ class POSTagger():
             for i in range(self.ntags):
 
                 # [1] -- e[curr_token, tag] is prob of seeing token at this time step
-                #                             given the tag being analyzed
+                #                             given the tag being analyzed                
                 # [ntags] -- q[tag, tags] is probs of seeing the tag being analyzed
                 #                           given all possible tags
                 # [ntags] -- pi[tags, prev_token] is probs of any tag occuring
-                #                                   at the previous time step
+                #                                   at the previous time step               
                 # [ntags] -- x is probs of the current tag being associated with the
                 #            current word and any of the tags at the previous time step
-                x = e[sequence[t],i] * q[i,:] * pi[:,t-1]
+                x = e[sequence[t],i] * \
+                    q[i,:] * \
+                    pi[:,t-1]
 
                 # get the tag at previous time step which yields the highest prob
                 bp[i,t] = np.argmax(x)
@@ -110,7 +112,56 @@ class POSTagger():
         return hidden_seq
     #
     # end of viterbi
+
+    def beam(self, sequence, k=1):
+        
+        # get the transition and emissions matrices
+        if q is None:
+            q = self.q
+        if e is None:
+            e = self.get_emissions(sequence)
+
+        # initialize the lattice
+        nseq = len(sequence)
+        pi = np.zeros((k, nseq), dtype=float)
+        bp = np.array_like(pi, dtype=int) 
+        pi[0][0] = 1
+        pass # TODO: make sure that tags[0] = START, else need to intiialize bp
     
+        # loop over the sequence
+        for t in range(1, nseq):
+
+            # get the previous best k tags
+            ktags = bp[:,t-1]
+            
+            # [ntags,k] -- e[curr_token, tags] is probs of seeing token at this time step
+            #                                    given any of the tags, repeated k times
+            # [1,ntags,k] -- q[tags, prev_tags] is probs of any of the tags being observed
+            #                                after the previous best k tags
+            # [k,1] -- pi[k, prev_token] is best k probs from previous time step
+            # [ntags,k] -- x is probs of any tag being associated with the current word
+            #              and occurring after any of the previous best k tags
+            x = np.tile(e[sequence[t],:][:, np.newaxis], k) * \
+                pi[ktags,t-1][:, np.newaxis] * \
+                q[np.newaxis, :, ktags]
+
+            # get the best k probabilities
+            y = x.flatten()
+            inds = np.argpartition(y, -k)[-k:]
+            inds = np.unravel_index(inds, x.shape)
+            bp[:,t] = inds[:, 0]
+
+            # store the k highest probabilities
+            pi[:,t] = x[inds]
+        #
+        # end of sequence
+
+        # get the best sequence
+        
+        return bp[np.argmax(pi[:,nseq-1]),:]
+    #
+    # end of beam
+        
 if __name__ == "__main__":
     pos_tagger = POSTagger()
 
