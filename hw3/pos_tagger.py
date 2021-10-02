@@ -58,7 +58,59 @@ class POSTagger():
         """
         return []
 
+    # generate a (len(sequence), self.ntags) array
+    def get_emissions(sequence):
+        return e
+    
+    def viterbi(self, sequence, q=None, e=None):
 
+        # get the transition and emissions matrices
+        if q is None:
+            q = self.q
+        if e is None:
+            e = self.get_emissions(sequence)
+
+        # initialize the trellis
+        nseq = len(sequence)
+        pi = np.zeros((self.ntags, nseq), dtype=float)
+        bp = np.array_like(pi, dtype=int)
+        pi[0][0] = 1
+
+        # loop over sequence
+        for t in range(1, nseq):
+
+            # loop over all possible tags
+            for i in range(self.ntags):
+
+                # [1] -- e[curr_token, tag] is prob of seeing token at this time step
+                #                             given the tag being analyzed
+                # [ntags] -- q[tag, tags] is probs of seeing the tag being analyzed
+                #                           given all possible tags
+                # [ntags] -- pi[tags, prev_token] is probs of any tag occuring
+                #                                   at the previous time step
+                # [ntags] -- x is probs of the current tag being associated with the
+                #            current word and any of the tags at the previous time step
+                x = e[sequence[t],i] * q[i,:] * pi[:,t-1]
+
+                # get the tag at previous time step which yields the highest prob
+                bp[i,t] = np.argmax(x)
+
+                # store the highest prob at this tag
+                pi[i,t] = x[bp[i,t]]
+            #
+            # end of tags
+        #
+        # end of sequence
+
+        # use the back pointer to generate the most optimal sequence
+        hidden_seq = np.zeros(nseq, dtype=int)
+        hidden_seq[nseq-1] = np.argmax(pi[:,nseq-1])
+        for t in range(nseq-1, -1, -1):
+            hidden_seq[t-1] = bp[hidden_seq[t],t]
+        return hidden_seq
+    #
+    # end of viterbi
+    
 if __name__ == "__main__":
     pos_tagger = POSTagger()
 
