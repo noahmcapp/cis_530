@@ -78,11 +78,11 @@ def evaluate(data, model):
 class POSTagger:
     def __init__(self):
         """Initializes the tagger model parameters and anything else necessary. """
-        self.emission_model = get_emission_model(ADD_K_EMISSION, **{
+        self.em = get_emission_model(ADD_K_EMISSION, **{
             'cutoff_percentile': 0.05,
             'k': 3
         })
-        self.transition_model = get_transition_model(ADD_K_TRANSITION, **{
+        self.tm = get_transition_model(ADD_K_TRANSITION, **{
             'ngram': 3,
             'k': 3
         })
@@ -95,8 +95,8 @@ class POSTagger:
             - N-gram models with varying N.
         
         """
-        self.emission_model.train(data)
-        self.transition_model.train(data)
+        self.em.train(data)
+        self.tm.train(data)
 
     def sequence_probability(self, sequence, tags):
         """Computes the probability of a tagged sequence given the emission/transition
