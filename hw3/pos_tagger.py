@@ -3,18 +3,8 @@
 """ Contains the part of speech tagger class. """
 import re
 
-
-class POSSentence:
-    def __init__(self, words, tag_sequence=None):
-        self.words = words
-        self.tags = tag_sequence
-
-    # TODO: Add suitable utility methods here if needed
-
-    def __str__(self):
-        if not self.tags:
-            return ' '.join(self.words)
-        return ' '.join([f"{word}/{tag}" for word, tag in zip(self.words, self.tags)])
+from param_model_factory import get_emission_model, get_transition_model, ADD_K_EMISSION, ADD_K_TRANSITION
+from pos_sentence import POSSentence
 
 
 def load_data(sentence_file, tag_file=None):
@@ -48,11 +38,10 @@ def load_data(sentence_file, tag_file=None):
             continue
         word = re.sub(r'^\d+,', '', word_line)[1:-1]
         tag = re.sub(r'^\d+,', '', tag_line)[1:-1] if tag_file else None
-        if word == '-DOCSTART-' or word == ".":
-            if word == ".":
-                curr_words.append(".")
-                if tag_file:
-                    curr_tags.append(tag)
+        if word == '-DOCSTART-':
+            curr_words.append('-DOCSTART-')
+            if tag_file:
+                curr_tags.append(tag)
             if curr_words:
                 sentence = POSSentence([*curr_words])
                 if tag_file:
@@ -86,10 +75,17 @@ def evaluate(data, model):
     pass
 
 
-class POSTagger():
+class POSTagger:
     def __init__(self):
         """Initializes the tagger model parameters and anything else necessary. """
-        pass
+        self.em = get_emission_model(ADD_K_EMISSION, **{
+            'cutoff_percentile': 0.05,
+            'k': 3
+        })
+        self.tm = get_transition_model(ADD_K_TRANSITION, **{
+            'ngram': 3,
+            'k': 3
+        })
 
     def train(self, data):
         """Trains the model by computing transition and emission probabilities.
@@ -99,7 +95,8 @@ class POSTagger():
             - N-gram models with varying N.
         
         """
-        pass
+        self.em.train(data)
+        self.tm.train(data)
 
     def sequence_probability(self, sequence, tags):
         """Computes the probability of a tagged sequence given the emission/transition
