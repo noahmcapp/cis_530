@@ -75,9 +75,7 @@ class TransitionModel:
 
     @staticmethod
     def _get_ngram(length: int, idx: int, tokens: List[str]) -> Tuple[str]:
-        if idx >= length - 1:
-            return tuple(tokens[i] for i in range(idx - length + 1, idx + 1))
-        return tuple([START_TAG] * (length - idx - 1) + tokens[:idx + 1])
+        return tuple(tokens[i] for i in range(idx - length + 1, idx + 1))
 
     def train(self, train_sentences: List[POSSentence]):
         self._less_one_ngram_count[tuple([START_TAG] * (self.ngram - 1))] = len(train_sentences)
