@@ -4,11 +4,8 @@ from collections import defaultdict
 
 from pos_sentence import POSSentence
 
-UNKNOWN = '<UNK>'
-START_TAG = "<s>"
 ADD_K_EMISSION = 'add_k_emission'
 ADD_K_TRANSITION = 'add_k_transition'
-
 
 ### start of Emission Model
 class EmissionModel:
@@ -74,7 +71,7 @@ class TransitionModel:
         self.ngram = ngram
         self._ngram_count = defaultdict(int)
         self._less_one_ngram_count = defaultdict(int)
-        self.avail_tags = set()
+        self.avail_tags = set(START_TAG, STOP_TAG)
 
     @staticmethod
     def _get_ngram(length: int, idx: int, tokens: List[str]) -> Tuple[str]:
@@ -84,9 +81,10 @@ class TransitionModel:
 
     def train(self, train_sentences: List[POSSentence]):
         self._less_one_ngram_count[tuple([START_TAG] * (self.ngram - 1))] = len(train_sentences)
+        self._less_one_ngram_count[tuple([STOP_TAG] * (self.ngram - 1))] = len(train_sentences)        
         for sentences in train_sentences:
             tags = sentences.tags
-            for i in range(len(tags)):
+            for i in range(2, len(tags)):
                 self.avail_tags.add(tags[i])
                 self._ngram_count[self._get_ngram(self.ngram, i, tags)] += 1
                 self._less_one_ngram_count[self._get_ngram(self.ngram - 1, i, tags)] += 1

@@ -4,8 +4,7 @@
 import re
 
 from param_model_factory import get_emission_model, get_transition_model, ADD_K_EMISSION, ADD_K_TRANSITION
-from pos_sentence import POSSentence
-
+from pos_sentence import POSSentence, START_TAG, STOP_TAG
 
 def load_data(sentence_file, tag_file=None):
     """Loads data from two files: one containing sentences and one containing tags.
@@ -39,9 +38,6 @@ def load_data(sentence_file, tag_file=None):
         word = re.sub(r'^\d+,', '', word_line)[1:-1]
         tag = re.sub(r'^\d+,', '', tag_line)[1:-1] if tag_file else None
         if word == '-DOCSTART-':
-            curr_words.append('-DOCSTART-')
-            if tag_file:
-                curr_tags.append(tag)
             if curr_words:
                 sentence = POSSentence([*curr_words])
                 if tag_file:
