@@ -41,7 +41,7 @@ class AddKEmissionModel(EmissionModel):
 
     def train(self, train_sentences: List[POSSentence]):
         super().train(train_sentences)
-        cutoff_count = sorted(self._word_counts)[int(len(self._word_counts) * self.cutoff_percentile)]
+        cutoff_count = sorted(self._word_counts.values())[int(len(self._word_counts) * self.cutoff_percentile)]
         unknown_words = set()
         unknown_count = 0
         for word, count in self._word_counts.items():
@@ -52,18 +52,16 @@ class AddKEmissionModel(EmissionModel):
         self._word_counts[UNKNOWN] = unknown_count
         for unk in unknown_words:
             self._word_counts.pop(unk)
-        self.word_tag_count = defaultdict(int)
-        self.tag_count = defaultdict(int)
         for sentence in train_sentences:
             for word, tag in zip(sentence.words, sentence.tags):
                 token = UNKNOWN if word in unknown_words else word
-                self.tag_count[tag] += 1
-                self.word_tag_count[token, tag] += 1
+                self._tag_count[tag] += 1
+                self._word_tag_count[token, tag] += 1
 
     def emit(self, word: str, tag: str) -> float:
-        token = UNKNOWN if self.word_tag_count.get(word) is None else word
-        return (self.word_tag_count.get((token, tag), 0) + self.k) / (
-                self.tag_count[tag] + len(self._word_counts) * self.k)
+        token = UNKNOWN if self._word_tag_count.get(word) is None else word
+        return (self._word_tag_count.get((token, tag), 0) + self.k) / (
+                self._tag_count[tag] + len(self._word_counts) * self.k)
 
 
 ### End of emission model
