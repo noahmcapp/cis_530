@@ -2,7 +2,7 @@ import math
 from typing import List, Tuple
 from collections import defaultdict
 
-from pos_sentence import POSSentence
+from pos_sentence import POSSentence, START_TAG, STOP_TAG, UNKNOWN
 
 ADD_K_EMISSION = 'add_k_emission'
 ADD_K_TRANSITION = 'add_k_transition'
