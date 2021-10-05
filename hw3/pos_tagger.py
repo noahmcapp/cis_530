@@ -45,8 +45,8 @@ def load_data(sentence_file, tag_file=None):
                 if tag_file:
                     sentence.tags = [*curr_tags]
                 sentences.append(sentence)
-                curr_words = []
-                curr_tags = []
+                curr_words = ['-DOCSTART-']
+                curr_tags = [tag]
             else:
                 curr_words.append('-DOCSTART-')
                 if tag_file:
@@ -77,14 +77,14 @@ def evaluate(data, model):
     q = model.q_mat()
     for sequence in data:
         e = model.e_mat(sequence)
-        # for i in range(len(sequence.words)):
-        #     print(sequence.words[i])
-        #     print(e[i])
-        pred_tags, score = model.inference(sequence, q, e, method='greedy')
+
+        # TODO: all thse are giving the exact same results
+        #       1) something wrong with decoding
+        #       2) they all get same results cause of poor MLE?
+        greedy_tags, greedy_score = model.inference(sequence, q, e, method='greedy')
+        beam_tags, beam_score = model.inference(sequence, q, e, method='beam', k=4)        
+        vit_tags, vit_score = model.inference(sequence, q, e, method='viterbi')        
         true_tags = sequence.tags
-        print(pred_tags, score)
-        print(true_tags)
-        break
 
 class POSTagger:
     def __init__(self):
@@ -95,7 +95,7 @@ class POSTagger:
         })
         self.tm = get_transition_model(ADD_K_TRANSITION, **{
             'ngram': 3,
-            'k': 1e-4
+            'k': 3
         })
 
     def train(self, data):
@@ -124,7 +124,6 @@ class POSTagger:
         m = len(self.tags)
         e = np.log(np.full((n,m), np.finfo(float).eps, dtype=float))                
         for i in range(n):
-            print('asdjklfklasdjjklasdf\n\n')
             for j in range(m):
                 e[i][j] = self.em.log_emit(sequence.words[i], self.tags[j])
         return e
@@ -135,7 +134,7 @@ class POSTagger:
         """
         return 0.
 
-    def inference(self, sequence, q, e, method='greedy'):
+    def inference(self, sequence, q, e, method='greedy', k=1):
         """Tags a sequence with part of speech tags.
 
         You should implement different kinds of inference (suggested as separate
@@ -147,7 +146,10 @@ class POSTagger:
         """
         if method == 'greedy':
             inds, score = self.greedy(sequence, q, e)
-            
+        if method == 'beam':
+            inds, score = self.beam(sequence, q, e, k)
+        if method == 'viterbi':
+            inds, score = self.viterbi(sequence, q, e)
         return [self.tags[i] for i in inds], score
     
     # generate a (len(sequence), self.ntags) array
@@ -173,24 +175,89 @@ class POSTagger:
             )
             bp[t] = np.argmax(x)
             pi[t] = np.max(x)
-            if t <5 and False:
-                print(x)
-                #print(e[seq_ind,:][...,np.newaxis])
-                #print(q[:,bp[t-1],bp[t-2]])
-                #print(pi[t-1])
-                #print(bp[t-1], pi[t-1])
-                print('')
-                print(bp[t], pi[t])
-                print(e[seq_ind,bp[t]])
-                print(q[bp[t],bp[t-1],bp[t-2]])
-            
+        #
+        # end of sequence
+
+        # decode the bp and pi arrays to get the hidden sequence
         hidden_seq = np.zeros(nseq, dtype=int)
-        hidden_seq[nseq-1] = np.argmax(pi[nseq+2-1])
-        for t in range(nseq-1, -1, -1):
-            hidden_seq[t-1] = bp[t+2]
-        return hidden_seq, np.max(pi[nseq+2-1])
+        hidden_seq[-1] = bp[nseq+2-1]
+        for t in range(nseq-1, 0, -1):
+            hidden_seq[t-1] = bp[t+2-1]
+        return hidden_seq, pi[nseq+2-1]
     #
     # end of greedy
+
+    def n_best(self, x, n):
+        return np.array(np.unravel_index(np.argpartition(x.ravel(), -n)[-n:], x.shape))
+    
+    def beam(self, sequence, q, e, k=1):
+
+        # initialize the trellis
+        # TODO: check the paper, this def needs to be nseq, k, k
+        nseq = len(sequence.words)
+        pi = np.log(np.full((nseq+2, k, k), np.finfo(float).eps, dtype=float))
+        bp = np.zeros_like(pi, dtype=int)
+        bp[0,:] = 0 # NOTE: this assume <s> is at self.tags[0]
+        bp[1,:] = 0
+        pi[0,:] = 1
+        pi[1,:] = 1
+        for t in range(2, nseq+2):
+            seq_ind = t-2
+            x = (
+                e[seq_ind,:][...,np.newaxis,np.newaxis] + \
+                q[:, bp[t-1], bp[t-2]] + \
+                pi[t-1]
+            )
+            inds = self.n_best(x, k)
+            bp[t] = inds[0,:]
+            for i in range(k):
+                pi[t][i] = x[inds[:, i][0], inds[:, i][1]]
+        #
+        # end of sequence
+
+        # decode the bp and pi arrays to get the hidden sequence
+        hidden_seq = np.zeros(nseq, dtype=int)
+        hidden_seq[-1] = bp[nseq+2-1,np.argmax(pi[nseq+2-1])][0]
+        for t in range(nseq-1, 0, -1):
+            hidden_seq[t-1] = bp[t+2-1,np.argmax(pi[t+2-1])][0]
+        return hidden_seq, np.max(pi[nseq+2-1])
+    #
+    # end of beam
+
+    def viterbi(self, sequence, q, e):
+
+        # initialize the trellis
+        # TODO: check the paper, this def needs to be nseq, k, k
+        nseq = len(sequence.words)
+        ntags = len(self.tags)
+        pi = np.log(np.full((nseq+2, ntags, ntags), np.finfo(float).eps, dtype=float))
+        bp = np.zeros_like(pi, dtype=int)
+        bp[0,:] = 0 # NOTE: this assume <s> is at self.tags[0]
+        bp[1,:] = 0
+        pi[0,:] = 1
+        pi[1,:] = 1
+        for t in range(2, nseq+2):
+            seq_ind = t-2
+            x = (
+                e[seq_ind,:][...,np.newaxis,np.newaxis] + \
+                q[:, bp[t-1], bp[t-2]] + \
+                pi[t-1]
+            )
+            inds = self.n_best(x, ntags)
+            bp[t] = inds[0,:]
+            for i in range(ntags):
+                pi[t][i] = x[inds[:, i][0], inds[:, i][1]]
+        #
+        # end of sequence
+
+        # decode the bp and pi arrays to get the hidden sequence
+        hidden_seq = np.zeros(nseq, dtype=int)
+        hidden_seq[-1] = bp[nseq+2-1,np.argmax(pi[nseq+2-1])][0]
+        for t in range(nseq-1, 0, -1):
+            hidden_seq[t-1] = bp[t+2-1,np.argmax(pi[t+2-1])][0]
+        return hidden_seq, np.max(pi[nseq+2-1])
+    #
+    # end of beam
         
 if __name__ == "__main__":
     pos_tagger = POSTagger()
