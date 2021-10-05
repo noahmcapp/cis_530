@@ -80,7 +80,7 @@ class POSTagger:
         """Initializes the tagger model parameters and anything else necessary. """
         self.em = get_emission_model(ADD_K_EMISSION, **{
             'cutoff_percentile': 0.05,
-            'k': 3
+            'k': 1e-4
         })
         self.tm = get_transition_model(ADD_K_TRANSITION, **{
             'ngram': 3,
