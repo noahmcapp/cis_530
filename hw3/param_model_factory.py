@@ -86,8 +86,8 @@ class TransitionModel:
             tags = sentences.tags
             for i in range(len(tags)):
                 self.avail_tags.add(tags[i])
-                self._ngram_count[self._get_ngram(self.ngram, i - 1, tags)] += 1
-                self._less_one_ngram_count[self._get_ngram(self.ngram - 1, i, tags)] += 1
+                self._ngram_count[self._get_ngram(self.ngram, i, tags)] += 1
+                self._less_one_ngram_count[self._get_ngram(self.ngram - 1, i - 1, tags)] += 1
 
     def transit(self, tag: str, prev_tags: Tuple[str]) -> float:
         raise NotImplemented
