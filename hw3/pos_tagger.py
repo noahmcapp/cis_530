@@ -84,7 +84,7 @@ class POSTagger:
         })
         self.tm = get_transition_model(ADD_K_TRANSITION, **{
             'ngram': 3,
-            'k': 3
+            'k': 1e-4
         })
 
     def train(self, data):
