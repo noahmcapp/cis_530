@@ -89,7 +89,7 @@ class TransitionModel:
             for i in range(len(tags)):
                 self.avail_tags.add(tags[i])
                 self._ngram_count[self._get_ngram(self.ngram, i, tags)] += 1
-                self._less_one_ngram_count[self._get_ngram(self.ngram - 1, i, tags)] += 1
+                self._less_one_ngram_count[self._get_ngram(self.ngram - 1, i-1, tags)] += 1
 
     def transit(self, tag: str, prev_tags: Tuple[str]) -> float:
         raise NotImplemented
@@ -106,7 +106,7 @@ class AddKTransitionModel(TransitionModel):
     def transit(self, tag: str, prev_tags: Tuple[str]) -> float:
         if len(prev_tags) != self.ngram - 1:
             raise ValueError("number of previous tokens is invalid")
-        n_count = self._ngram_count.get(tuple([tag, *prev_tags]), 0)
+        n_count = self._ngram_count.get(tuple([*prev_tags, tag]), 0)
         d_count = self._less_one_ngram_count.get(prev_tags, 0)
         return (n_count + self.k) / (d_count + self.k * len(self.avail_tags))
 

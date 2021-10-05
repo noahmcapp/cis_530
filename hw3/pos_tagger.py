@@ -2,6 +2,7 @@
 
 """ Contains the part of speech tagger class. """
 import re
+import numpy as np
 
 from param_model_factory import get_emission_model, get_transition_model, ADD_K_EMISSION, ADD_K_TRANSITION
 from pos_sentence import POSSentence
@@ -39,16 +40,17 @@ def load_data(sentence_file, tag_file=None):
         word = re.sub(r'^\d+,', '', word_line)[1:-1]
         tag = re.sub(r'^\d+,', '', tag_line)[1:-1] if tag_file else None
         if word == '-DOCSTART-':
-            curr_words.append('-DOCSTART-')
-            if tag_file:
-                curr_tags.append(tag)
-            if curr_words:
+            if len(curr_words) != 0:
                 sentence = POSSentence([*curr_words])
                 if tag_file:
                     sentence.tags = [*curr_tags]
                 sentences.append(sentence)
                 curr_words = []
                 curr_tags = []
+            else:
+                curr_words.append('-DOCSTART-')
+                if tag_file:
+                    curr_tags.append(tag)
         else:
             curr_words.append(word)
             if tag_file:
@@ -72,8 +74,17 @@ def evaluate(data, model):
     You might want to refactor this into several different evaluation functions.
     
     """
-    pass
-
+    q = model.q_mat()
+    for sequence in data:
+        e = model.e_mat(sequence)
+        # for i in range(len(sequence.words)):
+        #     print(sequence.words[i])
+        #     print(e[i])
+        pred_tags, score = model.inference(sequence, q, e, method='greedy')
+        true_tags = sequence.tags
+        print(pred_tags, score)
+        print(true_tags)
+        break
 
 class POSTagger:
     def __init__(self):
@@ -97,14 +108,34 @@ class POSTagger:
         """
         self.em.train(data)
         self.tm.train(data)
-
+        self.tags = ['<s>'] + sorted(list(self.tm.avail_tags))
+        
+    def q_mat(self):
+        n = len(self.tags)
+        q = np.log(np.full((n,n,n), np.finfo(float).eps, dtype=float))
+        for i in range(n):
+            for j in range(n):
+                for k in range(n):
+                    q[i,j,k] = self.tm.log_transit(self.tags[i], prev_tags=tuple((self.tags[k],self.tags[j])))
+        return q
+    
+    def e_mat(self, sequence):
+        n = len(sequence.words)
+        m = len(self.tags)
+        e = np.log(np.full((n,m), np.finfo(float).eps, dtype=float))                
+        for i in range(n):
+            print('asdjklfklasdjjklasdf\n\n')
+            for j in range(m):
+                e[i][j] = self.em.log_emit(sequence.words[i], self.tags[j])
+        return e
+    
     def sequence_probability(self, sequence, tags):
         """Computes the probability of a tagged sequence given the emission/transition
         probabilities.
         """
         return 0.
 
-    def inference(self, sequence):
+    def inference(self, sequence, q, e, method='greedy'):
         """Tags a sequence with part of speech tags.
 
         You should implement different kinds of inference (suggested as separate
@@ -114,111 +145,52 @@ class POSTagger:
             - decoding with beam search
             - viterbi
         """
-        return []
-
+        if method == 'greedy':
+            inds, score = self.greedy(sequence, q, e)
+            
+        return [self.tags[i] for i in inds], score
+    
     # generate a (len(sequence), self.ntags) array
     def get_emissions(sequence):
         return e
-    
-    def viterbi(self, sequence, q=None, e=None):
 
-        # get the transition and emissions matrices
-        if q is None:
-            q = self.q
-        if e is None:
-            e = self.get_emissions(sequence)
+    def greedy(self, sequence, q, e):
 
         # initialize the trellis
-        nseq = len(sequence)
-        pi = np.zeros((self.ntags, nseq), dtype=float)
-        bp = np.array_like(pi, dtype=int)
-        pi[0][0] = 1
-
-        # loop over sequence
-        for t in range(1, nseq):
-
-            # loop over all possible tags
-            for i in range(self.ntags):
-
-                # [1] -- e[curr_token, tag] is prob of seeing token at this time step
-                #                             given the tag being analyzed                
-                # [ntags] -- q[tag, tags] is probs of seeing the tag being analyzed
-                #                           given all possible tags
-                # [ntags] -- pi[tags, prev_token] is probs of any tag occuring
-                #                                   at the previous time step               
-                # [ntags] -- x is probs of the current tag being associated with the
-                #            current word and any of the tags at the previous time step
-                x = e[sequence[t],i] * \
-                    q[i,:] * \
-                    pi[:,t-1]
-
-                # get the tag at previous time step which yields the highest prob
-                bp[i,t] = np.argmax(x)
-
-                # store the highest prob at this tag
-                pi[i,t] = x[bp[i,t]]
-            #
-            # end of tags
-        #
-        # end of sequence
-
-        # use the back pointer to generate the most optimal sequence
-        hidden_seq = np.zeros(nseq, dtype=int)
-        hidden_seq[nseq-1] = np.argmax(pi[:,nseq-1])
-        for t in range(nseq-1, -1, -1):
-            hidden_seq[t-1] = bp[hidden_seq[t],t]
-        return hidden_seq
-    #
-    # end of viterbi
-
-    def beam(self, sequence, k=1):
-        
-        # get the transition and emissions matrices
-        if q is None:
-            q = self.q
-        if e is None:
-            e = self.get_emissions(sequence)
-
-        # initialize the lattice
-        nseq = len(sequence)
-        pi = np.zeros((k, nseq), dtype=float)
-        bp = np.array_like(pi, dtype=int) 
-        pi[0][0] = 1
-        pass # TODO: make sure that tags[0] = START, else need to intiialize bp
-    
-        # loop over the sequence
-        for t in range(1, nseq):
-
-            # get the previous best k tags
-            ktags = bp[:,t-1]
+        nseq = len(sequence.words)
+        pi = np.log(np.full((nseq+2, 1), np.finfo(float).eps, dtype=float))
+        bp = np.zeros_like(pi, dtype=int)
+        bp[0] = 0 # NOTE: this assume <s> is at self.tags[0]
+        bp[1] = 0
+        pi[0] = 1
+        pi[1] = 1
+        for t in range(2, nseq+2):
+            seq_ind = t-2
+            x = (
+                e[seq_ind,:][...,np.newaxis] + \
+                q[:, bp[t-1], bp[t-2]] + \
+                pi[t-1]
+            )
+            bp[t] = np.argmax(x)
+            pi[t] = np.max(x)
+            if t <5 and False:
+                print(x)
+                #print(e[seq_ind,:][...,np.newaxis])
+                #print(q[:,bp[t-1],bp[t-2]])
+                #print(pi[t-1])
+                #print(bp[t-1], pi[t-1])
+                print('')
+                print(bp[t], pi[t])
+                print(e[seq_ind,bp[t]])
+                print(q[bp[t],bp[t-1],bp[t-2]])
             
-            # [ntags,k] -- e[curr_token, tags] is probs of seeing token at this time step
-            #                                    given any of the tags, repeated k times
-            # [1,ntags,k] -- q[tags, prev_tags] is probs of any of the tags being observed
-            #                                after the previous best k tags
-            # [k,1] -- pi[k, prev_token] is best k probs from previous time step
-            # [ntags,k] -- x is probs of any tag being associated with the current word
-            #              and occurring after any of the previous best k tags
-            x = np.tile(e[sequence[t],:][:, np.newaxis], k) * \
-                pi[ktags,t-1][:, np.newaxis] * \
-                q[np.newaxis, :, ktags]
-
-            # get the best k probabilities
-            y = x.flatten()
-            inds = np.argpartition(y, -k)[-k:]
-            inds = np.unravel_index(inds, x.shape)
-            bp[:,t] = inds[:, 0]
-
-            # store the k highest probabilities
-            pi[:,t] = x[inds]
-        #
-        # end of sequence
-
-        # get the best sequence
-        
-        return bp[np.argmax(pi[:,nseq-1]),:]
+        hidden_seq = np.zeros(nseq, dtype=int)
+        hidden_seq[nseq-1] = np.argmax(pi[nseq+2-1])
+        for t in range(nseq-1, -1, -1):
+            hidden_seq[t-1] = bp[t+2]
+        return hidden_seq, np.max(pi[nseq+2-1])
     #
-    # end of beam
+    # end of greedy
         
 if __name__ == "__main__":
     pos_tagger = POSTagger()
@@ -234,7 +206,8 @@ if __name__ == "__main__":
     # Here you can also implement experiments that compare different styles of decoding,
     # smoothing, n-grams, etc.
     evaluate(dev_data, pos_tagger)
-
+    exit()
+    
     # Predict tags for the test set
     test_predictions = []
     for sentence in test_data:
