@@ -85,6 +85,9 @@ def evaluate(data, model):
         beam_tags, beam_score = model.inference(sequence, q, e, method='beam', k=4)        
         vit_tags, vit_score = model.inference(sequence, q, e, method='viterbi')        
         true_tags = sequence.tags
+        # print('true_prob', model.sequence_probability(true_tags,q,e))
+        # print('vit', vit_score)
+        # print('vit_prob', model.sequence_probability(vit_tags,q,e))        
 
 class POSTagger:
     def __init__(self):
@@ -128,11 +131,15 @@ class POSTagger:
                 e[i][j] = self.em.log_emit(sequence.words[i], self.tags[j])
         return e
 
-    def sequence_probability(self, sequence, tags):
+    def sequence_probability(self, tags, q, e):
         """Computes the probability of a tagged sequence given the emission/transition
         probabilities.
         """
-        return 0.
+        tags = [self.tags.index(x) for x in tags]
+        score = np.finfo(float).eps
+        for t in range(2,len(tags)):
+            score += e[t-2,tags[t]] + q[tags[t],tags[t-1],tags[t-2]]
+        return score
 
     def inference(self, sequence, q, e, method='greedy', k=1):
         """Tags a sequence with part of speech tags.
