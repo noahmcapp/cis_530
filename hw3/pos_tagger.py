@@ -95,7 +95,7 @@ class POSTagger:
         })
         self.tm = get_transition_model(ADD_K_TRANSITION, **{
             'ngram': 3,
-            'k': 3
+            'k': 1e-4
         })
 
     def train(self, data):
@@ -128,7 +128,7 @@ class POSTagger:
             for j in range(m):
                 e[i][j] = self.em.log_emit(sequence.words[i], self.tags[j])
         return e
-    
+
     def sequence_probability(self, sequence, tags):
         """Computes the probability of a tagged sequence given the emission/transition
         probabilities.

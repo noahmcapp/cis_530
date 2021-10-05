@@ -50,13 +50,11 @@ class AddKEmissionModel(EmissionModel):
                 unknown_count += count
 
         self._word_counts[UNKNOWN] = unknown_count
-        for unk in unknown_words:
-            self._word_counts.pop(unk)
-        for sentence in train_sentences:
-            for word, tag in zip(sentence.words, sentence.tags):
-                token = UNKNOWN if word in unknown_words else word
-                self._tag_count[tag] += 1
-                self._word_tag_count[token, tag] += 1
+        for unk_word in unknown_words:
+            self._word_counts.pop(unk_word)
+            for tag in self._tag_count:
+                self._word_tag_count[UNKNOWN, tag] += self._word_tag_count.get((unk_word, tag), 0)
+                self._word_tag_count.pop((unk_word, tag), None)
 
     def emit(self, word: str, tag: str) -> float:
         token = UNKNOWN if self._word_tag_count.get(word) is None else word
@@ -89,7 +87,7 @@ class TransitionModel:
             for i in range(len(tags)):
                 self.avail_tags.add(tags[i])
                 self._ngram_count[self._get_ngram(self.ngram, i, tags)] += 1
-                self._less_one_ngram_count[self._get_ngram(self.ngram - 1, i-1, tags)] += 1
+                self._less_one_ngram_count[self._get_ngram(self.ngram - 1, i - 1, tags)] += 1
 
     def transit(self, tag: str, prev_tags: Tuple[str]) -> float:
         raise NotImplemented
