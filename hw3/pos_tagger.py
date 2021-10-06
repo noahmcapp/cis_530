@@ -1,10 +1,17 @@
 #!/usr/bin/env python
 
 """ Contains the part of speech tagger class. """
-import sys
+
+# system modules
+import os
 import re
+import sys
+import argparse
+
+# installed modules
 import numpy as np
 
+# custom modules
 from param_model_factory import get_emission_model, get_transition_model, ADD_K_EMISSION, ADD_K_TRANSITION
 from pos_sentence import POSSentence
 
@@ -84,7 +91,7 @@ def load_data(sentence_file, tag_file=None):
 #
 # end of load_data
 
-def evaluate(data, model, f='output/pred_y.csv'):
+def evaluate(data, model, f='output/pred_y.csv', method='greedy', k=1):
     """Evaluates the POS model on some sentences and gold tags.
 
     This model can compute a few different accuracies:
@@ -116,12 +123,11 @@ def evaluate(data, model, f='output/pred_y.csv'):
 
         # generate the emission matrix for each sequence
         e = model.e_mat(sequence)
-
-        # perform the inference
-        tags, vit_score = model.inference(sequence, q, e, method='viterbi')
-        # tags, greedy_score = model.inference(sequence, q, e, method='greedy')
-        # tags, beam_score = model.inference(sequence, q, e, method='beam', k=5)        
         
+        # perform the inference
+        tags, ll = model.inference(sequence, q, e, method=method, k=k)
+        x = model.inference(sequence, q, e, method='greedy')[0]
+
         # store the predicted tags
         pred_tags += tags
     #
@@ -329,10 +335,6 @@ class POSTagger:
     #
     # end of greedy
 
-    # TODO: not working properly
-    def n_best(self, x, n):
-        return np.array(np.unravel_index(np.argpartition(x.ravel(), -n)[-n:], x.shape)).T
-
     def viterbi(self, sequence, q, e):
 
         # initialize the trellis
@@ -363,9 +365,7 @@ class POSTagger:
                 pi[t-1][...,np.newaxis] + \
                 e[seq_ind]
             )
-            # if t ==5:
-            #     for y in np.argmax(x, axis=0):
-            #         print(y)
+
             # get the bigram that gives each tag the highest log-likelihood
             bp[t] = np.argmax(x, axis=0)
             pi[t] = np.max(x, axis=0)
@@ -381,52 +381,63 @@ class POSTagger:
             # get the tag at time step t, using bigram from hidden sequence
             bp_ind = tuple([t] + hidden_seq[:(self.ngram-1)])
             hidden_seq.insert(0,bp[bp_ind])
-
+            
         # finally, return the decoded hidden sequence and the exact log-likelihood
         return hidden_seq, np.max(pi[-1])
     #
     # end of viterbi
 
-    # TODO: not working properly
     def beam(self, sequence, q, e, k=1):
-        raise NotImplemented
-    
+
         # initialize the trellis
-        # TODO: check the paper, this def needs to be nseq, k, k
+        # NOTE: uses nseq+2 to add 2 <s> at the beginning
         nseq = len(sequence.words)
-        pi = np.full((nseq+2, k, k), np.finfo(float).eps, dtype=float)
+        pi = np.full((nseq+2, k, k), float("-inf"), dtype=float)
         bp = np.zeros_like(pi, dtype=int)
-        bp[0,0,0] = 0 # NOTE: this assume <s> is at self.tags[0]
-        bp[1,0,0] = 0
-        pi[0,0,0] = 1
-        pi[1,0,0] = 1
-        pi = np.log(pi)
-        x = np.zeros([q.shape[0],k,k])        
+
+        # set the start probabilities, t=0 and t=1 can only be <s>
+        # NOTE: this assumes <s> is at self.tags[0]
+        bp[0:2,0,0] = 0
+        pi[0:2,0,0] = 0
+        
         for t in range(2, nseq+2):
             seq_ind = t-2
-            inds = []
             x = (
-                q[:,bp[t-1][0,:],bp[t-1][:,0]] + \
-                pi[t-1] + \
-                e[seq_ind]
+                q[bp[t-2],bp[t-1],:] + \
+                pi[t-1][...,np.newaxis] + \
+                e[seq_ind,:]
             )
-            inds = self.n_best(x, k)
-            bp[t] = inds[0,:]
-            for i in range(k):
-                pi[t][i] = x[inds[:, i][0], inds[:, i][1]]
+
+            # get the bigrams which give each tag the highest log-likelihood
+            x = np.max(x, axis=0)
+            
+            # get the top k tags with highest log-likelihood
+            bp[t] = np.argpartition(x, -k, axis=-1)[:,-k:]
+            pi[t] = x[np.repeat(np.arange(k),k),bp[t].ravel()].reshape(k,k)
         #
         # end of sequence
 
-        # decode the bp and pi arrays to get the hidden sequence
-        hidden_seq = np.zeros(nseq, dtype=int)
-        hidden_seq[-1] = bp[nseq+2-1,np.argmax(pi[nseq+2-1])][0]
-        for t in range(nseq-1, 0, -1):
-            hidden_seq[t-1] = bp[t+2-1,np.argmax(pi[t+2-1])][0]
-        return hidden_seq, np.max(pi[nseq+2-1])
+        # TODO: i think this is working 100%. shouldn't just take the max of pi at each timestep?
+        # NOTE: beam(k=1) == greedy
+        # loop through the rest of the trellis
+        hidden_seq = []
+        for t in range(nseq+1, (self.ngram-1)-1, -1):
+
+            # get the tag at time step t, using bigram from hidden sequence            
+            inds = tuple(np.unravel_index(np.argmax(pi[t]), pi.shape[1:]))
+            hidden_seq.insert(0, bp[t][inds])
+
+        # finally, return the decoded hidden sequence and the estimated log-likelihood
+        return hidden_seq, np.max(pi[-1])                          
     #
     # end of beam
         
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-method', type=str, choices=['viterbi','beam','greedy'], default='greedy')
+    parser.add_argument('-beam_k', type=int, default=1)
+    args = parser.parse_args()
+    
     pos_tagger = POSTagger()
 
     train_data = load_data("data/train_x.csv", "data/train_y.csv")
@@ -439,7 +450,7 @@ if __name__ == "__main__":
 
     # Here you can also implement experiments that compare different styles of decoding,
     # smoothing, n-grams, etc.
-    evaluate(dev_data, pos_tagger)
+    evaluate(dev_data, pos_tagger, method=args.method, k=args.beam_k)
     exit()
     
     # Predict tags for the test set
