@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
 """ Contains the part of speech tagger class. """
+import sys
 import re
 import numpy as np
 
 from param_model_factory import get_emission_model, get_transition_model, ADD_K_EMISSION, ADD_K_TRANSITION
 from pos_sentence import POSSentence
-
 
 def load_data(sentence_file, tag_file=None):
     """Loads data from two files: one containing sentences and one containing tags.
@@ -34,36 +34,57 @@ def load_data(sentence_file, tag_file=None):
     curr_tags = []
     sentences = []
 
+    # loop through words and tags
     for word_line, tag_line in zip(word_lines, tag_lines):
+
+        # ignore header
         if word_line == 'id,word':
             continue
+
+        # get the word and tag from the file lines
         word = re.sub(r'^\d+,', '', word_line)[1:-1]
         tag = re.sub(r'^\d+,', '', tag_line)[1:-1] if tag_file else None
+
+        # document separator
         if word == '-DOCSTART-':
-            if len(curr_words) != 0:
+
+            # start of the first document, store the document separator
+            if len(curr_words) == 0:
+                curr_words.append('-DOCSTART-')
+                if tag_file:
+                    curr_tags.append(tag)
+                    
+            # start of the next document, store the accumulated words/tags as a sentence
+            else:
                 sentence = POSSentence([*curr_words])
                 if tag_file:
                     sentence.tags = [*curr_tags]
                 sentences.append(sentence)
                 curr_words = ['-DOCSTART-']
                 curr_tags = [tag]
-            else:
-                curr_words.append('-DOCSTART-')
-                if tag_file:
-                    curr_tags.append(tag)
+            #
+            # end of document checking
+
+        # accumulate words/tags inbetween document separators
         else:
             curr_words.append(word)
             if tag_file:
                 curr_tags.append(tag)
+        #
+        # end of document separator checking
 
+    # store the final set of words/tags as a sentence
     sentence = POSSentence(curr_words)
     if tag_file:
         sentence.tags = curr_tags
     sentences.append(sentence)
+
+    # finally, return the data as a list of sentences
     return sentences
+#
+# end of load_data
 
-
-def evaluate(data, model):
+def evaluate(data, model, f='output/pred_y.csv'):
     """Evaluates the POS model on some sentences and gold tags.
 
     This model can compute a few different accuracies:
@@ -74,33 +95,79 @@ def evaluate(data, model):
     You might want to refactor this into several different evaluation functions.
     
     """
+
+    # generate the transition matrix
     q = model.q_mat()
-    for sequence in data:
+
+    # start the progress bar
+    width = 50
+    sys.stdout.write(('Decoding Dev Dataset: [%s]') % (" "*(width)))
+    sys.stdout.flush()
+    sys.stdout.write('\b'*(width+1))
+
+    # loop through the sequences    
+    pred_tags = []
+    for i, sequence in enumerate(data):
+
+        # report progress
+        if i % (len(data)//width) == 0:
+            sys.stdout.write("-")
+            sys.stdout.flush()
+
+        # generate the emission matrix for each sequence
         e = model.e_mat(sequence)
 
-        # TODO: all thse are giving the exact same results
-        #       1) something wrong with decoding
-        #       2) they all get same results cause of poor MLE?
-        greedy_tags, greedy_score = model.inference(sequence, q, e, method='greedy')
-        beam_tags, beam_score = model.inference(sequence, q, e, method='beam', k=4)        
-        vit_tags, vit_score = model.inference(sequence, q, e, method='viterbi')        
-        true_tags = sequence.tags
-        # print('true_prob', model.sequence_probability(true_tags,q,e))
-        # print('vit', vit_score)
-        # print('vit_prob', model.sequence_probability(vit_tags,q,e))        
+        # perform the inference
+        tags, vit_score = model.inference(sequence, q, e, method='viterbi')
+        # tags, greedy_score = model.inference(sequence, q, e, method='greedy')
+        # tags, beam_score = model.inference(sequence, q, e, method='beam', k=5)        
 
+        # print(tags)
+        # print(sequence.tags)
+        # exit()
+        
+        # store the predicted tags
+        pred_tags += tags
+    #
+    # end of sequences
+
+    # store the predicted tags in a file
+    write_preds(f, pred_tags)    
+
+    # end the progress bar
+    sys.stdout.write("]\nSuccessfully Wrote Predictions -- %s\n" % (f))    
+#
+# end of evaluate
+
+# writes a list of tags in the same format as the train/dev_y.csv files
+def write_preds(f, tags):
+    fp = open(f, 'w')
+    fp.write('id,tag\n')
+    ids = np.arange(len(tags))
+    for id, tag in zip(ids, tags):
+        fp.write('%s,\"%s\"\n' % (id, tag))
+    fp.close()
+#
+# end of write_preds
+
+# uses MLE to generate probability distributions of the tags and words
+# then uses viterbi to decode the trigram HMM model
 class POSTagger:
     def __init__(self):
+        self.ngram = 3
+        
         """Initializes the tagger model parameters and anything else necessary. """
         self.em = get_emission_model(ADD_K_EMISSION, **{
             'cutoff_percentile': 0.05,
-            'k': 3
+            'k': self.ngram
         })
         self.tm = get_transition_model(ADD_K_TRANSITION, **{
             'ngram': 3,
-            'k': 3
+            'k': self.ngram
         })
-
+    #
+    # end of constructor
+    
     def train(self, data):
         """Trains the model by computing transition and emission probabilities.
 
@@ -111,36 +178,93 @@ class POSTagger:
         """
         self.em.train(data)
         self.tm.train(data)
+
+        # generate a list of tags
+        # NOTE: sorted and adding start tag so that q and e are consistent between runs
         self.tags = ['<s>'] + sorted(list(self.tm.avail_tags))
-        
+    #
+    # end of train
+
+    # generates a [ntags,ntags,ntags] matrix
+    #  e.g. q[i,j,k] = Pr{tag[k] | (tag[i],tag[j])}
+    #  e.g. trigram: V D N -> q[V,D,N] = Pr{N | (V,D)}
     def q_mat(self):
+
+        # initialize the array
         n = len(self.tags)
-        q = np.log(np.full((n,n,n), np.finfo(float).eps, dtype=float))
+        q = np.empty([n]*self.ngram, dtype=float)
+
+        # TODO: need to generalize to ngrams
+        # loop over all possible trigrams
         for i in range(n):
             for j in range(n):
                 for k in range(n):
-                    q[i,j,k] = self.tm.log_transit(self.tags[i], prev_tags=tuple((self.tags[k],self.tags[j])))
-        return q
-    
+                    
+                    # get the transition probability of trigram {i,j,k}
+                    q[i,j,k] = self.tm.transit(self.tags[k],
+                                               prev_tags=tuple((self.tags[i],self.tags[j])))
+        #
+        # end of trigrams loop
+
+        # generate the log-transition probability matrix
+        return np.log(q)
+    #
+    # end of q_mat
+
+    # generates a [nseq,ntags] matrix
+    #  e.g. e[i,j] = Pr{seq[i] | tags[j]}
+    #  e.g. word: cat, tag: N -> q[cat,N] = Pr{cat | N}
     def e_mat(self, sequence):
+
+        # initialize the matrix
         n = len(sequence.words)
         m = len(self.tags)
-        e = np.log(np.full((n,m), np.finfo(float).eps, dtype=float))                
+        e = np.empty((n,m), dtype=float)
+
+        # loop over all word/tag combinations
         for i in range(n):
             for j in range(m):
-                e[i][j] = self.em.log_emit(sequence.words[i], self.tags[j])
-        return e
 
+                # get the emission probability -- Pr{word|tag}
+                e[i][j] = self.em.emit(sequence.words[i], self.tags[j])
+            #
+            # end of tags
+        #
+        # end of words
+            
+        # generate the log-emission probability matrix
+        return np.log(e)
+    #
+    # end of e_mat
+
+    # TODO: need to generalize to ngram
+    # generates the log-likelihood of the tag sequence given the q and e matrices
     def sequence_probability(self, tags, q, e):
         """Computes the probability of a tagged sequence given the emission/transition
         probabilities.
         """
-        tags = [self.tags.index(x) for x in tags]
-        score = np.finfo(float).eps
-        for t in range(2,len(tags)):
-            score += e[t-2,tags[t]] + q[tags[t],tags[t-1],tags[t-2]]
-        return score
 
+        # get the indices of the tags
+        tags = [self.tags.index(x) for x in tags]
+
+        # initialize the score
+        score = np.log(1)
+
+        # loop through tags
+        for t in range(len(tags)):
+
+            # get the t-1 and t-2 tags, or <s> if extends past 0
+            t_2 = tags[t-2] if t-2 >= 0 else 0
+            t_1 = tags[t-1] if t-1 >= 0 else 0
+
+            # accumulate the log-emission and log-tranistion probs
+            score += e[t,tags[t]] + q[tags[t],t_1,t_2]
+            
+        return score
+    #
+    # end of sequence_probability
+
+    # decodes the trigram HMM using various algorithms
     def inference(self, sequence, q, e, method='greedy', k=1):
         """Tags a sequence with part of speech tags.
 
@@ -152,107 +276,147 @@ class POSTagger:
             - viterbi
         """
         if method == 'greedy':
-            inds, score = self.greedy(sequence, q, e)
+            inds, ll = self.greedy(sequence, q, e)
         if method == 'beam':
-            inds, score = self.beam(sequence, q, e, k)
+            inds, ll = self.beam(sequence, q, e, k)
         if method == 'viterbi':
-            inds, score = self.viterbi(sequence, q, e)
-        return [self.tags[i] for i in inds], score
-    
-    # generate a (len(sequence), self.ntags) array
-    def get_emissions(sequence):
-        return e
+            inds, ll = self.viterbi(sequence, q, e)
 
+        # convert the tag indices to tag strings
+        return [self.tags[i] for i in inds], ll
+    #
+    # end of inference
+
+    # TODO: need to generalize to ngram
+    # performs a k=1 beam search over the data, at each word/tag in sequence it calculates
+    # the log-likelihood of the word given 
     def greedy(self, sequence, q, e):
 
         # initialize the trellis
+        # NOTE: uses nseq+2 to add 2 <s> at the beginning
         nseq = len(sequence.words)
-        pi = np.log(np.full((nseq+2, 1), np.finfo(float).eps, dtype=float))
+        pi = np.full((nseq+2, 1, 1), float("-inf"), dtype=float)
         bp = np.zeros_like(pi, dtype=int)
-        bp[0] = 0 # NOTE: this assume <s> is at self.tags[0]
-        bp[1] = 0
-        pi[0] = 1
-        pi[1] = 1
+
+        # set the start probabilities, t=0 and t=1 can only be <s>
+        # NOTE: this assumes <s> is at self.tags[0]
+        bp[0:2,0,0] = 0
+        pi[0:2,0,0] = 0
+
+        # loop through the sequence, starting at first word in sequence
         for t in range(2, nseq+2):
+
+            # map t to the sequence, 2 less to handle the <s> tags
             seq_ind = t-2
+
+            # q[tags,less_1_bigram] -> {ntags,} -> prob of seeing any of the tags
+            #                                              given the most likely bigram from
+            #                                              previous step            
+            # pi[less_1_bigram] -> {1,1,1} -> prob of the most likely bigram from previous step                   # e[word,tags] -> {ntags,} -> prob of seeing word given any of the tags
             x = (
-                e[seq_ind,:][...,np.newaxis] + \
-                q[:, bp[t-1], bp[t-2]] + \
-                pi[t-1]
+                q[:, bp[t-1,0,0], bp[t-2,0,0]] + \
+                pi[t-1][:,:,np.newaxis] + \
+                e[seq_ind,:]
             )
+
+            # get the most likely tag at this time step
             bp[t] = np.argmax(x)
             pi[t] = np.max(x)
         #
         # end of sequence
 
-        # decode the bp and pi arrays to get the hidden sequence
-        hidden_seq = np.zeros(nseq, dtype=int)
-        hidden_seq[-1] = bp[nseq+2-1]
-        for t in range(nseq-1, 0, -1):
-            hidden_seq[t-1] = bp[t+2-1]
-        return hidden_seq, pi[nseq+2-1]
+        # decode the trellis, take the most probable
+        hidden_seq = list(bp[2:,0,0])
+
+        # finally, return the decoded sequence and the estimated log-likelihood 
+        return hidden_seq, pi[-1]
     #
     # end of greedy
 
+    # TODO: not working properly
     def n_best(self, x, n):
-        return np.array(np.unravel_index(np.argpartition(x.ravel(), -n)[-n:], x.shape))
-    
-    def beam(self, sequence, q, e, k=1):
-
-        # initialize the trellis
-        # TODO: check the paper, this def needs to be nseq, k, k
-        nseq = len(sequence.words)
-        pi = np.log(np.full((nseq+2, k, k), np.finfo(float).eps, dtype=float))
-        bp = np.zeros_like(pi, dtype=int)
-        bp[0,:] = 0 # NOTE: this assume <s> is at self.tags[0]
-        bp[1,:] = 0
-        pi[0,:] = 1
-        pi[1,:] = 1
-        for t in range(2, nseq+2):
-            seq_ind = t-2
-            x = (
-                e[seq_ind,:][...,np.newaxis,np.newaxis] + \
-                q[:, bp[t-1], bp[t-2]] + \
-                pi[t-1]
-            )
-            inds = self.n_best(x, k)
-            bp[t] = inds[0,:]
-            for i in range(k):
-                pi[t][i] = x[inds[:, i][0], inds[:, i][1]]
-        #
-        # end of sequence
-
-        # decode the bp and pi arrays to get the hidden sequence
-        hidden_seq = np.zeros(nseq, dtype=int)
-        hidden_seq[-1] = bp[nseq+2-1,np.argmax(pi[nseq+2-1])][0]
-        for t in range(nseq-1, 0, -1):
-            hidden_seq[t-1] = bp[t+2-1,np.argmax(pi[t+2-1])][0]
-        return hidden_seq, np.max(pi[nseq+2-1])
-    #
-    # end of beam
+        return np.array(np.unravel_index(np.argpartition(x.ravel(), -n)[-n:], x.shape)).T
 
     def viterbi(self, sequence, q, e):
 
         # initialize the trellis
-        # TODO: check the paper, this def needs to be nseq, k, k
+        # NOTE: uses nseq+2 to add 2 <s> at the beginning
         nseq = len(sequence.words)
         ntags = len(self.tags)
-        pi = np.log(np.full((nseq+2, ntags, ntags), np.finfo(float).eps, dtype=float))
+        pi = np.full([nseq+(self.ngram-1)]+[ntags]*(self.ngram-1), float("-inf"), dtype=float)
+        bp = np.full_like(pi, -1, dtype=int)
+
+        # set the start probabilities, t=0 and t=1 can only be <s>
+        # NOTE: this assumes <s> is at self.tags[0]        
+        bp[0:(self.ngram-1),0,0] = 0 
+        pi[0:(self.ngram-1),0,0] = 0
+
+        # loop through the sequence, starting at first word in sequence
+        for t in range((self.ngram-1), nseq+(self.ngram-1)):
+
+            # map t to the sequence, 2 less to handle the <s> tags
+            seq_ind = t-(self.ngram-1)
+
+            # TODO: check the axis order of pi, maybe should be [1,ntags,ntags]?
+            # q[tags,tags,tags] -> {ntags,ntags,ntags} -> prob of seeing any of the tags
+            #                                             given any possible bigram
+            # pi[less_1_bigrams] -> {ntags,ntags,1} -> probs of the bigrams from the previous step
+            # e[word,tags] -> {ntags,} -> prob of seeing word given any of the tags
+            x = (
+                q + \
+                pi[t-1][...,np.newaxis] + \
+                e[seq_ind]
+            )
+            # if t ==5:
+            #     for y in np.argmax(x, axis=0):
+            #         print(y)
+            # get the bigram that gives each tag the highest log-likelihood
+            bp[t] = np.argmax(x, axis=0)
+            pi[t] = np.max(x, axis=0)
+        #
+        # end of sequence
+        
+        # decode the trellis, start with the most probable bigram in pi
+        hidden_seq = list(np.unravel_index(np.argmax(pi[-1]), pi.shape[1:]))
+
+        # loop through the rest of the trellis
+        for t in range(nseq+1, (self.ngram-1)+1, -1):
+
+            # get the tag at time step t, using bigram from hidden sequence
+            bp_ind = tuple([t] + hidden_seq[:(self.ngram-1)])
+            hidden_seq.insert(0,bp[bp_ind])
+
+        # finally, return the decoded hidden sequence and the exact log-likelihood
+        return hidden_seq, np.max(pi[-1])
+    #
+    # end of viterbi
+
+    # TODO: not working properly
+    def beam(self, sequence, q, e, k=1):
+        raise NotImplemented
+    
+        # initialize the trellis
+        # TODO: check the paper, this def needs to be nseq, k, k
+        nseq = len(sequence.words)
+        pi = np.full((nseq+2, k, k), np.finfo(float).eps, dtype=float)
         bp = np.zeros_like(pi, dtype=int)
-        bp[0,:] = 0 # NOTE: this assume <s> is at self.tags[0]
-        bp[1,:] = 0
-        pi[0,:] = 1
-        pi[1,:] = 1
+        bp[0,0,0] = 0 # NOTE: this assume <s> is at self.tags[0]
+        bp[1,0,0] = 0
+        pi[0,0,0] = 1
+        pi[1,0,0] = 1
+        pi = np.log(pi)
+        x = np.zeros([q.shape[0],k,k])        
         for t in range(2, nseq+2):
             seq_ind = t-2
+            inds = []
             x = (
-                e[seq_ind,:][...,np.newaxis,np.newaxis] + \
-                q[:, bp[t-1], bp[t-2]] + \
-                pi[t-1]
+                q[:,bp[t-1][0,:],bp[t-1][:,0]] + \ # TODO: this order is wrong
+                pi[t-1] + \
+                e[seq_ind]
             )
-            inds = self.n_best(x, ntags)
+            inds = self.n_best(x, k)
             bp[t] = inds[0,:]
-            for i in range(ntags):
+            for i in range(k):
                 pi[t][i] = x[inds[:, i][0], inds[:, i][1]]
         #
         # end of sequence
@@ -284,8 +448,12 @@ if __name__ == "__main__":
     
     # Predict tags for the test set
     test_predictions = []
+    q_mat = model.q_mat()
     for sentence in test_data:
-        test_predictions.extend(pos_tagger.inference(sentence))
+        e = model.e_mat(sequence)
+        test_predictions.extend(pos_tagger.inference(sentence, q, e, method='viterbi'))
     
     # Write them to a file to update the leaderboard
-    # TODO
+    write_preds('output/test_pred_y.csv', test_predictions)
+#
+# end of main

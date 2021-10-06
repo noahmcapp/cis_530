@@ -57,7 +57,7 @@ class AddKEmissionModel(EmissionModel):
                 self._word_tag_count.pop((unk_word, tag), None)
 
     def emit(self, word: str, tag: str) -> float:
-        token = UNKNOWN if self._word_tag_count.get(word) is None else word
+        token = UNKNOWN if self._word_counts.get(word) is None else word
         return (self._word_tag_count.get((token, tag), 0) + self.k) / (
                 self._tag_count[tag] + len(self._word_counts) * self.k)
 
