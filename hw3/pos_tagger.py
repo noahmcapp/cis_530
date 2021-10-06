@@ -121,10 +121,6 @@ def evaluate(data, model, f='output/pred_y.csv'):
         tags, vit_score = model.inference(sequence, q, e, method='viterbi')
         # tags, greedy_score = model.inference(sequence, q, e, method='greedy')
         # tags, beam_score = model.inference(sequence, q, e, method='beam', k=5)        
-
-        # print(tags)
-        # print(sequence.tags)
-        # exit()
         
         # store the predicted tags
         pred_tags += tags
@@ -258,7 +254,7 @@ class POSTagger:
             t_1 = tags[t-1] if t-1 >= 0 else 0
 
             # accumulate the log-emission and log-tranistion probs
-            score += e[t,tags[t]] + q[tags[t],t_1,t_2]
+            score += e[t,tags[t]] + q[t_2,t_1,tags[t]]
             
         return score
     #
@@ -314,8 +310,8 @@ class POSTagger:
             #                                              previous step            
             # pi[less_1_bigram] -> {1,1,1} -> prob of the most likely bigram from previous step                   # e[word,tags] -> {ntags,} -> prob of seeing word given any of the tags
             x = (
-                q[:, bp[t-1,0,0], bp[t-2,0,0]] + \
-                pi[t-1][:,:,np.newaxis] + \
+                q[bp[t-2,0,0],bp[t-1,0,0],:] + \
+                pi[t-1][...,np.newaxis] + \
                 e[seq_ind,:]
             )
 
@@ -410,7 +406,7 @@ class POSTagger:
             seq_ind = t-2
             inds = []
             x = (
-                q[:,bp[t-1][0,:],bp[t-1][:,0]] + \ # TODO: this order is wrong
+                q[:,bp[t-1][0,:],bp[t-1][:,0]] + \
                 pi[t-1] + \
                 e[seq_ind]
             )
