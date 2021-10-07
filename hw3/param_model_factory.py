@@ -8,6 +8,7 @@ UNKNOWN = '<UNK>'
 START_TAG = "<s>"
 ADD_K_EMISSION = 'add_k_emission'
 ADD_K_TRANSITION = 'add_k_transition'
+KN_TRANSITION = "kn_transition"
 
 
 ### start of Emission Model
@@ -34,14 +35,13 @@ class EmissionModel:
 
 
 class AddKEmissionModel(EmissionModel):
-    def __init__(self, cutoff_percentile: float = 0.05, k=3):
+    def __init__(self, k=3):
         super().__init__()
-        self.cutoff_percentile = cutoff_percentile
         self.k = k
 
     def train(self, train_sentences: List[POSSentence]):
         super().train(train_sentences)
-        cutoff_count = sorted(self._word_counts.values())[int(len(self._word_counts) * self.cutoff_percentile)]
+        cutoff_count = 1
         unknown_words = set()
         unknown_count = 0
         for word, count in self._word_counts.items():
@@ -96,6 +96,74 @@ class TransitionModel:
         return math.log(self.transit(tag, prev_tags))
 
 
+class KneserNeyTransitionModel(TransitionModel):
+    PREFIX_CONTEXT_TYPE = 0
+    SUFFIX_CONTEXT_TYPE = 1
+    BOTH_CONTEXT_TYPE = 2
+
+    def __init__(self, ngram: int, d=2):
+        super().__init__(ngram)
+        self.d = d
+        self._unique_context_count = {}
+        self._transit_memo = {}
+
+    def train(self, train_sentences: List[POSSentence]):
+        super().train(train_sentences)
+        unique_context = defaultdict(set)
+        for sentence in train_sentences:
+            tags = sentence.tags
+            for i, tag in enumerate(tags):
+                seq = self._get_ngram(self.ngram, i, tags)
+                for j in range(self.ngram):
+                    # unique bigrams
+                    if j < self.ngram - 1:
+                        unique_context[tuple(), self.BOTH_CONTEXT_TYPE].add((seq[j], seq[j + 1]))
+                    # unique context for other higher order grams
+                    for k in range(j, self.ngram):
+                        subseq = tuple(seq[idx] for idx in range(j, k + 1))
+                        # prefix context type
+                        if j > 0:
+                            unique_context[subseq, self.PREFIX_CONTEXT_TYPE].add(seq[j - 1])
+                        # suffix context type
+                        if k < self.ngram - 1:
+                            unique_context[subseq, self.SUFFIX_CONTEXT_TYPE].add(seq[k + 1])
+                        # both prefix and suffix context type
+                        if j > 0 and k < self.ngram - 1:
+                            unique_context[subseq, self.BOTH_CONTEXT_TYPE].add((seq[j - 1], seq[k + 1]))
+        for seq, context in unique_context.items():
+            self._unique_context_count[seq] = len(context)
+
+    def transit(self, tag: str, prev_tags: Tuple[str]) -> float:
+        if self._transit_memo.get((tag, prev_tags)) is not None:
+            return self._transit_memo[tag, prev_tags]
+        # base case: unigram
+        if not prev_tags:
+            return self._unique_context_count[(tag,), self.PREFIX_CONTEXT_TYPE] / \
+                   self._unique_context_count[tuple(), self.BOTH_CONTEXT_TYPE]
+
+        # highest order, use normal count
+        is_highest_order = len(prev_tags) == self.ngram - 1
+
+        # start with a lower level before interpolating and addition of discounted probability
+        p_cont = self.transit(tag, tuple([prev_tags[i] for i in range(1, len(prev_tags))]))
+
+        normalized_sum = self._less_one_ngram_count.get(prev_tags, 0) if is_highest_order else \
+            self._unique_context_count.get((prev_tags, self.BOTH_CONTEXT_TYPE), 0)
+        if normalized_sum == 0:
+            p = self.d * p_cont
+        else:
+            n_seq = tuple([*prev_tags, tag])
+            normalized_d = self.d / normalized_sum
+            if is_highest_order:
+                p = max(self._ngram_count.get(n_seq, 0) - self.d, 0) / normalized_sum + \
+                    normalized_d * self._unique_context_count[prev_tags, self.SUFFIX_CONTEXT_TYPE] * p_cont
+            else:
+                p = max(self._unique_context_count.get((n_seq, self.PREFIX_CONTEXT_TYPE), 0) - self.d, 0) / normalized_sum + \
+                    normalized_d * self._unique_context_count[prev_tags, self.SUFFIX_CONTEXT_TYPE] * p_cont
+        self._transit_memo[tag, prev_tags] = p
+        return p
+
+
 class AddKTransitionModel(TransitionModel):
     def __init__(self, ngram: int, k: int = 3):
         super().__init__(ngram)
@@ -126,6 +194,8 @@ def get_transition_model(transition_model: str, **kwargs) -> TransitionModel:
     cls_ = None
     if transition_model == ADD_K_TRANSITION:
         cls_ = AddKTransitionModel
+    elif transition_model == KN_TRANSITION:
+        cls_ = KneserNeyTransitionModel
 
     if cls_ is None:
         raise ValueError("invalid unknown word handle type")

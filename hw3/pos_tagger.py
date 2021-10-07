@@ -12,7 +12,8 @@ import argparse
 import numpy as np
 
 # custom modules
-from param_model_factory import get_emission_model, get_transition_model, ADD_K_EMISSION, ADD_K_TRANSITION
+from param_model_factory import get_emission_model, get_transition_model, ADD_K_EMISSION, ADD_K_TRANSITION, \
+    KN_TRANSITION
 from pos_sentence import POSSentence
 
 def load_data(sentence_file, tag_file=None):
@@ -160,12 +161,10 @@ class POSTagger:
         
         """Initializes the tagger model parameters and anything else necessary. """
         self.em = get_emission_model(ADD_K_EMISSION, **{
-            'cutoff_percentile': 0.05,
             'k': 1e-4
         })
-        self.tm = get_transition_model(ADD_K_TRANSITION, **{
-            'ngram': 3,
-            'k': 3
+        self.tm = get_transition_model(KN_TRANSITION, **{
+            'ngram': 3
         })
     #
     # end of constructor
