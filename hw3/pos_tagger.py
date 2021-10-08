@@ -354,7 +354,6 @@ class POSTagger:
             # map t to the sequence, 2 less to handle the <s> tags
             seq_ind = t-(self.ngram-1)
 
-            # TODO: check the axis order of pi, maybe should be [1,ntags,ntags]?
             # q[tags,tags,tags] -> {ntags,ntags,ntags} -> prob of seeing any of the tags
             #                                             given any possible bigram
             # pi[less_1_bigrams] -> {ntags,ntags,1} -> probs of the bigrams from the previous step
@@ -385,49 +384,54 @@ class POSTagger:
         return hidden_seq, np.max(pi[-1])
     #
     # end of viterbi
-
+    
     def beam(self, sequence, q, e, k=1):
 
         # initialize the trellis
         # NOTE: uses nseq+2 to add 2 <s> at the beginning
         nseq = len(sequence.words)
-        pi = np.full((nseq+2, k, k), float("-inf"), dtype=float)
+        ntags = len(self.tags)
+        pi = np.full((nseq+2, ntags, ntags), float("-inf"), dtype=float)
         bp = np.zeros_like(pi, dtype=int)
 
         # set the start probabilities, t=0 and t=1 can only be <s>
         # NOTE: this assumes <s> is at self.tags[0]
         bp[0:2,0,0] = 0
         pi[0:2,0,0] = 0
-        
         for t in range(2, nseq+2):
             seq_ind = t-2
             x = (
-                q[bp[t-2],bp[t-1],:] + \
+                q + \
                 pi[t-1][...,np.newaxis] + \
                 e[seq_ind,:]
             )
+            y = np.max(x, axis=0)
+            inds = np.argpartition(y, -k, axis=-1)[...,-k:]
 
-            # get the bigrams which give each tag the highest log-likelihood
-            x = np.max(x, axis=0)
-            
-            # get the top k tags with highest log-likelihood
-            bp[t] = np.argpartition(x, -k, axis=-1)[:,-k:]
-            pi[t] = x[np.repeat(np.arange(k),k),bp[t].ravel()].reshape(k,k)
+            # NOTE: this is makes it slower than viterbi, couldn't
+            #       figure out how to do this with pi = {nseq, k, k}
+            #       instead, just using pi = {nseq,ntags,ntags} and zeroing out
+            #       the worst ntags-k paths
+            # only keep the best k paths
+            bp[t] = np.argmax(x, axis=0)            
+            for i in range(ntags):
+                for j in inds[i]:
+                    pi[t,i,j] = y[i,j]
         #
         # end of sequence
 
-        # TODO: i think this is working 100%. shouldn't just take the max of pi at each timestep?
-        # NOTE: beam(k=1) == greedy
+        # decode the trellis, start with the most probable bigram in pi
+        hidden_seq = list(np.unravel_index(np.argmax(pi[-1]), pi.shape[1:]))
+
         # loop through the rest of the trellis
-        hidden_seq = []
-        for t in range(nseq+1, (self.ngram-1)-1, -1):
+        for t in range(nseq+1, (self.ngram-1)+1, -1):
 
-            # get the tag at time step t, using bigram from hidden sequence            
-            inds = tuple(np.unravel_index(np.argmax(pi[t]), pi.shape[1:]))
-            hidden_seq.insert(0, bp[t][inds])
-
-        # finally, return the decoded hidden sequence and the estimated log-likelihood
-        return hidden_seq, np.max(pi[-1])                          
+            # get the tag at time step t, using bigram from hidden sequence
+            bp_ind = tuple([t] + hidden_seq[:(self.ngram-1)])
+            hidden_seq.insert(0,bp[bp_ind])
+            
+        # finally, return the decoded hidden sequence and the exact log-likelihood
+        return hidden_seq, np.max(pi[-1])
     #
     # end of beam
         
