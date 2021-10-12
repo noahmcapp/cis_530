@@ -34,7 +34,7 @@ class EmissionModel:
         return math.log(self.emit(word, tag))
 
 
-class AddKEmissionModel(EmissionModel):
+class UnknownClassEmissionModel(EmissionModel):
     def __init__(self, k=3):
         super().__init__()
         self.k = k
@@ -132,6 +132,7 @@ class KneserNeyTransitionModel(TransitionModel):
                             unique_context[subseq, self.BOTH_CONTEXT_TYPE].add((seq[j - 1], seq[k + 1]))
         for seq, context in unique_context.items():
             self._unique_context_count[seq] = len(context)
+        self._unique_context_count[(START_TAG,), self.PREFIX_CONTEXT_TYPE] = 1
 
     def transit(self, tag: str, prev_tags: Tuple[str]) -> float:
         if self._transit_memo.get((tag, prev_tags)) is not None:
@@ -183,7 +184,7 @@ class AddKTransitionModel(TransitionModel):
 def get_emission_model(emission_model: str, **kwargs) -> EmissionModel:
     cls_ = None
     if emission_model == ADD_K_EMISSION:
-        cls_ = AddKEmissionModel
+        cls_ = UnknownClassEmissionModel
 
     if cls_ is None:
         raise ValueError("invalid emission model")

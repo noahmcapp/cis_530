@@ -164,7 +164,7 @@ class POSTagger:
         self.em = get_emission_model(ADD_K_EMISSION, **{
             'k': 1e-4
         })
-        self.tm = get_transition_model(ADD_K_TRANSITION, **{
+        self.tm = get_transition_model(KN_TRANSITION, **{
             'ngram': self.ngram
         })
     #
