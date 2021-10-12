@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import argparse
+from itertools import permutations
 
 # installed modules
 import numpy as np
@@ -156,15 +157,15 @@ def write_preds(f, tags):
 # uses MLE to generate probability distributions of the tags and words
 # then uses viterbi to decode the trigram HMM model
 class POSTagger:
-    def __init__(self):
-        self.ngram = 3
+    def __init__(self, ngram):
+        self.ngram = ngram
         
         """Initializes the tagger model parameters and anything else necessary. """
         self.em = get_emission_model(ADD_K_EMISSION, **{
             'k': 1e-4
         })
-        self.tm = get_transition_model(KN_TRANSITION, **{
-            'ngram': 3
+        self.tm = get_transition_model(ADD_K_TRANSITION, **{
+            'ngram': self.ngram
         })
     #
     # end of constructor
@@ -195,15 +196,18 @@ class POSTagger:
         n = len(self.tags)
         q = np.empty([n]*self.ngram, dtype=float)
 
-        # TODO: need to generalize to ngrams
-        # loop over all possible trigrams
-        for i in range(n):
-            for j in range(n):
-                for k in range(n):
-                    
-                    # get the transition probability of trigram {i,j,k}
-                    q[i,j,k] = self.tm.transit(self.tags[k],
-                                               prev_tags=tuple((self.tags[i],self.tags[j])))
+        # loop over all possible ngrams
+        for i in range(n**self.ngram):
+            ngram = []
+            d, r = i, 0
+            for j in range(0, self.ngram):
+                d, r = divmod(d, n)
+                ngram.append(r)
+            ngram = tuple(ngram[::-1])
+            
+            # get the transition probability the ngram
+            prev_tags = tuple([self.tags[ind] for ind in ngram[:-1]])
+            q[ngram] = self.tm.transit(self.tags[ngram[-1]], prev_tags=prev_tags)
         #
         # end of trigrams loop
 
@@ -288,34 +292,36 @@ class POSTagger:
     #
     # end of inference
 
-    # TODO: need to generalize to ngram
     # performs a k=1 beam search over the data, at each word/tag in sequence it calculates
     # the log-likelihood of the word given 
-    def greedy(self, sequence, q, e):
+    def greedy(self, sequence, q, e, ngram=3):
 
         # initialize the trellis
         # NOTE: uses nseq+2 to add 2 <s> at the beginning
         nseq = len(sequence.words)
-        pi = np.full((nseq+2, 1, 1), float("-inf"), dtype=float)
-        bp = np.zeros_like(pi, dtype=int)
-
+        pi = np.full([nseq+(self.ngram-1)]+[1]*(self.ngram-1), float("-inf"), dtype=float)
+        bp = np.full_like(pi, -1, dtype=int)
+        
         # set the start probabilities, t=0 and t=1 can only be <s>
         # NOTE: this assumes <s> is at self.tags[0]
-        bp[0:2,0,0] = 0
-        pi[0:2,0,0] = 0
+        bp[0:(self.ngram-1)] = 0 
+        pi[0:(self.ngram-1)] = 0
 
         # loop through the sequence, starting at first word in sequence
-        for t in range(2, nseq+2):
+        for t in range((self.ngram-1), nseq+(self.ngram-1)):
 
             # map t to the sequence, 2 less to handle the <s> tags
-            seq_ind = t-2
+            seq_ind = t-(self.ngram-1)
 
             # q[tags,less_1_bigram] -> {ntags,} -> prob of seeing any of the tags
             #                                              given the most likely bigram from
             #                                              previous step            
-            # pi[less_1_bigram] -> {1,1,1} -> prob of the most likely bigram from previous step                   # e[word,tags] -> {ntags,} -> prob of seeing word given any of the tags
+            # pi[less_1_bigram] -> {1,1,1} -> prob of the most likely bigram from previous step
+            # e[word,tags] -> {ntags,} -> prob of seeing word given any of the tags
+            # TODO: the q part here is not generalized to ngrams
+            bp_inds = [tuple([t-i] + [0]*(self.ngram-1)) for i in range((self.ngram-1), 0, -1)]
             x = (
-                q[bp[t-2,0,0],bp[t-1,0,0],:] + \
+                q[tuple([bp[ind] for ind in bp_inds])] + \
                 pi[t-1][...,np.newaxis] + \
                 e[seq_ind,:]
             )
@@ -327,7 +333,7 @@ class POSTagger:
         # end of sequence
 
         # decode the trellis, take the most probable
-        hidden_seq = list(bp[2:,0,0])
+        hidden_seq = list(np.squeeze(bp[(self.ngram-1):]))
 
         # finally, return the decoded sequence and the estimated log-likelihood 
         return hidden_seq, pi[-1]
@@ -344,9 +350,10 @@ class POSTagger:
         bp = np.full_like(pi, -1, dtype=int)
 
         # set the start probabilities, t=0 and t=1 can only be <s>
-        # NOTE: this assumes <s> is at self.tags[0]        
-        bp[0:(self.ngram-1),0,0] = 0 
-        pi[0:(self.ngram-1),0,0] = 0
+        # NOTE: this assumes <s> is at self.tags[0]
+        for i in range(self.ngram-1):
+            bp[tuple([i]+[0]*(self.ngram-1))] = 0
+            pi[tuple([i]+[0]*(self.ngram-1))] = 0             
 
         # loop through the sequence, starting at first word in sequence
         for t in range((self.ngram-1), nseq+(self.ngram-1)):
@@ -374,17 +381,18 @@ class POSTagger:
         hidden_seq = list(np.unravel_index(np.argmax(pi[-1]), pi.shape[1:]))
 
         # loop through the rest of the trellis
-        for t in range(nseq+1, (self.ngram-1)+1, -1):
+        for t in range(nseq+(self.ngram-1)-1, (self.ngram-1), -1):
 
             # get the tag at time step t, using bigram from hidden sequence
             bp_ind = tuple([t] + hidden_seq[:(self.ngram-1)])
             hidden_seq.insert(0,bp[bp_ind])
-            
+
         # finally, return the decoded hidden sequence and the exact log-likelihood
         return hidden_seq, np.max(pi[-1])
     #
     # end of viterbi
-    
+
+    # TODO: not generalized to ngram
     def beam(self, sequence, q, e, k=1):
 
         # initialize the trellis
@@ -396,8 +404,10 @@ class POSTagger:
 
         # set the start probabilities, t=0 and t=1 can only be <s>
         # NOTE: this assumes <s> is at self.tags[0]
-        bp[0:2,0,0] = 0
-        pi[0:2,0,0] = 0
+        for i in range(self.ngram-1):
+            bp[tuple([i]+[0]*(self.ngram-1))] = 0
+            pi[tuple([i]+[0]*(self.ngram-1))] = 0             
+
         for t in range(2, nseq+2):
             seq_ind = t-2
             x = (
@@ -439,9 +449,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-method', type=str, choices=['viterbi','beam','greedy'], default='greedy')
     parser.add_argument('-beam_k', type=int, default=1)
+    parser.add_argument('-ngram', type=int, default=3)
     args = parser.parse_args()
     
-    pos_tagger = POSTagger()
+    pos_tagger = POSTagger(args.ngram)
 
     train_data = load_data("data/train_x.csv", "data/train_y.csv")
     dev_data = load_data("data/dev_x.csv", "data/dev_y.csv")
@@ -459,6 +470,7 @@ if __name__ == "__main__":
     # Predict tags for the test set
     test_predictions = []
     q_mat = model.q_mat()
+    
     for sentence in test_data:
         e = model.e_mat(sequence)
         test_predictions.extend(pos_tagger.inference(sentence, q, e, method='viterbi'))
