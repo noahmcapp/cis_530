@@ -381,10 +381,10 @@ class POSTagger:
         hidden_seq = list(np.unravel_index(np.argmax(pi[-1]), pi.shape[1:]))
 
         # loop through the rest of the trellis
-        for t in range(nseq+(self.ngram-1)-1, (self.ngram-1), -1):
+        for t in range(nseq-1, (self.ngram-1)-1, -1):
 
             # get the tag at time step t, using bigram from hidden sequence
-            bp_ind = tuple([t] + hidden_seq[:(self.ngram-1)])
+            bp_ind = tuple([t+(self.ngram-1)] + hidden_seq[:(self.ngram-1)])
             hidden_seq.insert(0,bp[bp_ind])
 
         # finally, return the decoded hidden sequence and the exact log-likelihood
