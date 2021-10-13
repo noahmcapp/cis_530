@@ -465,17 +465,6 @@ if __name__ == "__main__":
     # Here you can also implement experiments that compare different styles of decoding,
     # smoothing, n-grams, etc.
     evaluate(dev_data, pos_tagger, method=args.method, k=args.beam_k)
-    exit()
-    
-    # Predict tags for the test set
-    test_predictions = []
-    q_mat = model.q_mat()
-    
-    for sentence in test_data:
-        e = model.e_mat(sequence)
-        test_predictions.extend(pos_tagger.inference(sentence, q, e, method='viterbi'))
-    
-    # Write them to a file to update the leaderboard
-    write_preds('output/test_pred_y.csv', test_predictions)
+
 #
 # end of main

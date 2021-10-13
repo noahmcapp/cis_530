@@ -11,6 +11,10 @@ Steps to install:
 
 Steps to Run:
 1) source ./env/bin/activate
-2) ./pos_tagger.py or ./evaluate.py
+2) Create folder hw3/output
+3) Train POS Tagger and generate prediction:
+./pos_tagger.py -method <method: can be greedy, viterbi or beam> -ngram <n: 2,3,4>
+For example: ./pos_tagger.py -method viterbi -ngram 3
+4) Evaluate prediction result: ./evaluate.py -d data/dev_y.csv -p output/pred_y.csv
 
 # NOTE: run deactivate to exit hw3 environment
