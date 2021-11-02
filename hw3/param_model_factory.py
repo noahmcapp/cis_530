@@ -1,6 +1,7 @@
 import math
 from typing import List, Tuple
 from collections import defaultdict
+import numpy as np
 
 from pos_sentence import POSSentence
 

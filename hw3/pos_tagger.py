@@ -116,6 +116,7 @@ def evaluate(data, model, f='output/pred_y.csv', method='greedy', k=1):
 
     # loop through the sequences    
     pred_tags = []
+    count = 0
     for i, sequence in enumerate(data):
 
         # report progress
@@ -128,13 +129,20 @@ def evaluate(data, model, f='output/pred_y.csv', method='greedy', k=1):
         
         # perform the inference
         tags, ll = model.inference(sequence, q, e, method=method, k=k)
-        x = model.inference(sequence, q, e, method='greedy')[0]
+
+        true_ll = model.sequence_probability(tags, q, e)
+
+        print(ll, true_ll)
+        if np.abs(ll - true_ll) < 0.001:
+            count += 1
 
         # store the predicted tags
         pred_tags += tags
     #
     # end of sequences
 
+    print(count/len(data))
+    
     # store the predicted tags in a file
     write_preds(f, pred_tags)    
 
@@ -464,7 +472,18 @@ if __name__ == "__main__":
 
     # Here you can also implement experiments that compare different styles of decoding,
     # smoothing, n-grams, etc.
+    
     evaluate(dev_data, pos_tagger, method=args.method, k=args.beam_k)
+    
+    # Predict tags for the test set
+    test_tags = []    
+    q = pos_tagger.q_mat()
+    for sequence in test_data:
+        e = pos_tagger.e_mat(sequence)
+        test_tags += pos_tagger.inference(sequence, q, e, method='viterbi')[0]
 
+    # Write them to a file to update the leaderboard
+    write_preds('output/test_pred_y.csv', test_tags)
 #
 # end of main
+

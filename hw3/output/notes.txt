@@ -1,0 +1,4 @@
+4gram = 3 hours!
+3 gram = couple mins
+2 gram = 40 sec
+

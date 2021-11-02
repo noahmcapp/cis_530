@@ -23,6 +23,8 @@ parser.add_argument("-c", "--confusion", dest = "show_confusion",
     action = "store_true", help = "show confusion matrix")
 parser.add_argument('-u', '--unknown', dest='unknown',
                     action='store_true')
+parser.add_argument('-e', '--error', dest='error',
+                    action='store_true')
 args = parser.parse_args()
 
 
@@ -107,7 +109,11 @@ if args.unknown:
     known_pred = [pred_tags[i] for i in known]
     unknown_actual = [dev_tags[i] for i in unknown]
     unknown_pred = [pred_tags[i] for i in unknown]
-    
+
+    unknown_tags = sorted(list(set(unknown_actual)))
+    freqs = []
+    for t in unknown_tags:
+        freqs.append(unknown_actual.count(t))
     print("Known F1 Score:", f1_score(
         known_actual,
         known_pred,
@@ -118,3 +124,29 @@ if args.unknown:
         unknown_pred,
         average = "weighted"
     ))
+
+if args.error:
+    trn_inds = [int(l.rstrip().split(',')[0]) for l in open('data/train_x.csv').readlines()[1:]]
+    dev_inds = [int(l.rstrip().split(',')[0]) for l in open('data/dev_x.csv').readlines()[1:]]    
+    trn_words = [l.rstrip().split(',')[1].strip('"') for l in open('data/train_x.csv').readlines()[1:]]
+    dev_words = [l.rstrip().split(',')[1].strip('"') for l in open('data/dev_x.csv').readlines()[1:]]
+
+    dev_tags = [l.rstrip().split(',')[1] for l in open('data/dev_y.csv').readlines()[1:]]
+    pred_tags = [l.rstrip().split(',')[1] for l in open(args.pred_path).readlines()[1:]]
+
+    trn_set = set(trn_words)
+    dev_set = set(dev_words)
+    
+    known = []
+    unknown = []
+    for ind in dev_inds:
+        if dev_words[ind] in trn_set:
+            known.append(ind)
+        else:
+            unknown.append(ind)
+    
+    for i in dev_inds:
+        if dev_tags[i] != pred_tags[i] and i in known:
+            print(dev_words[i], dev_tags[i], pred_tags[i])
+            
+    
