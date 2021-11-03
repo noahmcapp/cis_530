@@ -181,12 +181,7 @@ Save your model with the filename "model_classify"
 '''
 
 
-def run():
-    import matplotlib.pyplot as plt
-    import matplotlib.ticker as ticker
-
-    from models import CharRNNClassify
-    
+def run(lr=0.001, hidden_size=110, track_loss=False, track_confusion=False, save_model=False):
     baseDir = "/content/gdrive/My Drive/cis530_hw6"
 
     # read data
@@ -196,20 +191,18 @@ def run():
     # train
     n_iters = 100000
 
-    model = CharRNNClassify()
+    model = CharRNNClassify(hidden_size=hidden_size)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.AdamW(model.parameters())
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
 
     train_loss = []
     val_loss = []
-    iters = []
     loss_sum = 0
     for iter in range(1, n_iters + 1):
         model.train()
         loss_sum += trainOneEpoch(model, criterion, optimizer, X_train, y_train)
-        if iter and iter % 1000 == 0:
+        if track_loss and iter and iter % 1000 == 0:
             # save accumulated train loss
-            iters.append(iter)
             train_loss.append(loss_sum / 1000)
             loss_sum = 0
 
@@ -227,7 +220,8 @@ def run():
             val_loss.append(vloss / X_val.shape[0])
 
     # save model
-    torch.save(model.state_dict(), baseDir + "/model_classify")
+    if save_model:
+        torch.save(model.state_dict(), baseDir + "/model_classify")
 
     # evaluate
     model.eval()
@@ -237,17 +231,25 @@ def run():
         print(val_acc)
         # create confusion matrix
         confusions = torch.zeros(len(languages), len(languages))
-        for _ in range(10000):
-            word, lang_idx = random_training_pair(X_train, y_train)
-            line_tensor = line_to_tensor(word)
-            output = evaluate(model, line_tensor)
-            _, guess_idx = category_from_output(output)
-            confusions[lang_idx][guess_idx] += 1
-        for i in range(len(languages)):
-            confusions[i] = confusions[i] / confusions[i].sum()
+        if track_confusion:
+            for _ in range(10000):
+                word, lang_idx = random_training_pair(X_train, y_train)
+                line_tensor = line_to_tensor(word)
+                output = evaluate(model, line_tensor)
+                _, guess_idx = category_from_output(output)
+                confusions[lang_idx][guess_idx] += 1
+            for i in range(len(languages)):
+                confusions[i] = confusions[i] / confusions[i].sum()
+    return train_loss, val_loss, val_acc, confusions
 
-    ### plotting
-    # Set up confusion plot
+
+def plot_confusions_and_loss():
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker as ticker
+
+    train_loss, val_loss, val_acc, confusions = run(track_loss=True, track_confusion=True)
+
+    # Set up plot
     fig = plt.figure()
     ax = fig.add_subplot(111)
     cax = ax.matshow(confusions.numpy())
@@ -264,37 +266,30 @@ def run():
     # sphinx_gallery_thumbnail_number = 2
     plt.show()
 
-    # Set up loss plot
-    iters = [i for i in range(200, 100000, 1000)]
-    # plotting train loss
-    plt.plot(iters, train_loss, label="Train loss")
-    # plotting validation loss
-    plt.plot(iters, val_loss, label="Validation loss")
-    plt.xlabel('iterations')
-    # Set the y axis label of the current axis.
-    plt.ylabel('Loss')
-    # Set a title of the current axes.
-    plt.title('Train and Validation Loss')
-    # show a legend on the plot
-    plt.legend()
-    # Display a figure.
+
+def plot_hidden_size_effect():
+    import matplotlib.pyplot as plt
+
+    hidden_size = [10, 50, 110, 150, 200, 250, 400]
+    accuracy2 = []
+
+    for hs in hidden_size:
+        _, _, acc, _ = run(hidden_size=hs)
+        accuracy2.append(acc)
+    plt.xticks([*range(len(accuracy2))], hidden_size)
+    plt.plot(accuracy2, label="Accuracy by hidden size")
     plt.show()
 
-    # load saved model to predict test
 
-    model = CharRNNClassify()
-    model.load_state_dict(torch.load(baseDir + '/model_classify'))
-    model.eval()
+def plot_learning_rate_effect():
+    import matplotlib.pyplot as plt
 
-    test_cities = []
-    with open("/content/gdrive/My Drive/cis530_hw6/cities_test.txt", "r", errors='ignore') as f:
-        for line in f:
-            test_cities.append(unicodeToAscii(line.strip()))
-    test_cities = np.array(test_cities, dtype='object')
+    learning_rate = [0.00001, 0.00005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5]
+    accuracy = []
 
-    test_pred = predict(model, test_cities, None)
-    lang_pred = [languages[idx] for idx in test_pred]
-    with open(baseDir + "/labels.txt", "w") as f:
-        f.write('\n'.join(lang_pred))
-
-    return train_loss, val_loss, val_acc, confusions
+    for lr in learning_rate:
+        _, _, acc, _ = run(lr=lr)
+        accuracy.append(acc)
+    plt.xticks([*range(len(accuracy))], learning_rate)
+    plt.plot(accuracy, label="Accuracy by learning rate")
+    plt.show()
