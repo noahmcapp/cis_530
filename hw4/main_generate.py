@@ -86,7 +86,6 @@ class RNN(nn.Module):
         pred = primer        
         primer = to_tensor(primer)
 
-
         for i in range(len(primer) - 1):
             _, h = self(primer[i], h)
         #
@@ -108,6 +107,18 @@ class RNN(nn.Module):
         return pred
     #
     # end of decode
+
+    def evaluate(self, x, y):
+        h = self.init_hidden()
+        self.zero_grad()
+        loss = 0
+
+        for i in range(x.shape[0]):
+            o, h = self(x[i], h)
+            loss += self.criterion(o, y[i])
+        return np.exp(loss.item()/x.shape[0])
+    #
+    # end of evaluate
 #
 # end of RNN
 
@@ -128,7 +139,7 @@ class ChunkLoader:
 
     # TODO: chunks might need to be 0, 100, 200, 300 in validation?
     def get_inds(self):
-        self.chunks = list(range(len(self.data)))
+        self.chunks = list(range(len(self.data)-self.chunk_len))
         self.n = len(self.chunks)        
         if self.is_training:
             random.shuffle(self.chunks)
@@ -164,7 +175,7 @@ def run_train(model, nepochs, nchunks, chunk_loader, lr, ofname):
             x, y = next(chunk_loader)
 
             # get the loss over this chunk
-            loss = train(x, y, model, criterion, optimizer)
+            loss = model.train(x, y)
 
             # accumulate the loss over the epoch
             avg_loss += loss
@@ -186,21 +197,30 @@ def run_train(model, nepochs, nchunks, chunk_loader, lr, ofname):
 
     torch.save(model.state_dict(), ofname)
 
+def run_evaluate(model, chunk_loader):
+    perps = []
+    count = 0
+    neval = 200
+    for i in range(neval):
+        x, y = next(chunk_loader)
+        perp = model.evaluate(x, y)
+        perps.append(perp)
+    print('---> Perplexity of Data:', np.mean(perp))
+    
 def main(argv):
 
-    # TODO: parse the args
+    args = parse_args()
+
+    fname = args.data
+
     chunk_len = 200
     nchunks = 100
-    nepochs = 100
+    nepochs = 40
     
     hsize = 100
-    nlayers = 1
+    nlayers = 3
 
     lr = 0.002
-    
-    fname = 'input.txt'
-
-    ofname = 'models/model.dat'
     
     # load the data
     data = load_data(fname)
@@ -214,28 +234,38 @@ def main(argv):
     trn_loader = ChunkLoader(chunk_len, trn_data, nchunks, is_training=True)
     val_loader = ChunkLoader(chunk_len, val_data, nchunks, is_training=False)
     model = RNN(NCHARS, hsize, NCHARS, nlayers)
-
-    args = parse_args()
     
     # load or train the model
     if args.saved_model:
-        model.load_state_dict(torch.load(ofname))        
-    else:
-        run_train(model, nepochs, nchunks, trn_loader, lr, ofname)
-
-    # decode from the user's input
-    while True:
-        s = input("Enter primer string (leave blank to continue): ")
+        model.load_state_dict(torch.load(args.saved_model))        
+    if args.train:
+        run_train(model, nepochs, nchunks, trn_loader, lr, args.out_model)
+        print('** Evaluating on Hold out of Training Data **')
+        run_evaluate(model, val_loader)
+        
+    # decode from the user's inpu
+    while True and args.decode:
+        s = input("**> Enter primer string (leave blank to continue): ")
         if not s:
             break
         try:
             o = model.decode(s, args.npred, args.temp)
-            print(o)            
+            print('\n', o)
         except Exception as e:
             print(e)
             print('Input Failed, try again.')
     #
     # end of decoding
+
+    # evaluate the model on the eval dataset
+    if args.eval_data:
+        eval_data = load_data(args.eval_data)
+        eval_loader = ChunkLoader(chunk_len, eval_data, nchunks, is_training=True)
+        print('Validating Model -- %s' % args.saved_model)
+        print('** Evaluating on Validation Dataset -- %s **' % args.eval_data)
+        run_evaluate(model, eval_loader)
+    #
+    # end of evaluation
 #
 # end of main
 
@@ -245,12 +275,16 @@ def parse_args():
                         help="path to a .txt file to use as the dataset, this file is split into train/test datasets")    
     parser.add_argument('--saved_model', type=str, required=False, default='',
                         help="path to a saved *.dat model to use instead of training")
-    parser.add_argument('--decode', action='store_true', default=False,
-                        help="flag to decide if you want to decode the model on user input")
+    parser.add_argument('--out_model', type=str, required=False, default='models/',
+                        help="path to write trained model to.")
     parser.add_argument('--npred', type=int, default=100,
                         help="number of characters to decode after the primer")
     parser.add_argument('--temp', type=float, default=0.8,
                         help="temperature of model, higher means it takes more risks")
+    parser.add_argument('--eval_data', type=str, required=False,
+                        help='evaluation dataset to use')
+    parser.add_argument('--train', action='store_true')
+    parser.add_argument('--decode', action='store_true')
     return parser.parse_args()
 #
 # end of parse_args
